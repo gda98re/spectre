@@ -327,7 +327,58 @@ void weyl_psi2_impl(
            np_sigma * np_lambda;
 }
 
-// Definition of the NP derivatives terms in the Bianchi identities
+void psi3_residue_impl(
+    const gsl::not_null<SpinWeighted<ComplexDataVector, -1>*> psi_3_part,
+    const SpinWeighted<ComplexDataVector, 0>& np_epsilon,
+    const SpinWeighted<ComplexDataVector, -2>& np_lambda,
+    const SpinWeighted<ComplexDataVector, 0>& np_mu,
+    const SpinWeighted<ComplexDataVector, -1>& np_pi,
+    const SpinWeighted<ComplexDataVector, -1>& dy_pi,
+    const SpinWeighted<ComplexDataVector, -1>& np_nu,
+    const SpinWeighted<ComplexDataVector, -1>& dy_nu,
+    const SpinWeighted<ComplexDataVector, 0>& np_gamma,
+    const SpinWeighted<ComplexDataVector, 1>& np_tau,
+    const SpinWeighted<ComplexDataVector, 0>& exp_2_beta,
+    const SpinWeighted<ComplexDataVector, 1>& bondi_u,
+    const SpinWeighted<ComplexDataVector, 0>& eth_pi,
+    const SpinWeighted<ComplexDataVector, -2>& ethbar_pi,
+    const SpinWeighted<ComplexDataVector, 0>& bondi_w,
+    const SpinWeighted<ComplexDataVector, 0>& bondi_r,
+    const SpinWeighted<ComplexDataVector, 0>& one_minus_y) {
+  *psi_3_part =
+      -(conj(np_pi) + np_tau) * np_lambda - (conj(np_tau) + np_pi) * np_mu -
+      (conj(np_epsilon) + 3 * np_epsilon) * np_nu +
+      (conj(np_gamma) - np_gamma) * np_pi +
+      square(one_minus_y) * dy_nu / (2. * sqrt(2.) * bondi_r) -
+      (ethbar_pi * bondi_u + eth_pi * conj(bondi_u) -
+       one_minus_y * dy_pi * (bondi_w + one_minus_y / (2 * bondi_r))) /
+          (sqrt(2.) * exp_2_beta);
+}
+
+void delta_du_commutator_coeff_a_impl(
+    const gsl::not_null<SpinWeighted<ComplexDataVector, 0>*> a_coeff,
+    const SpinWeighted<ComplexDataVector, 0>& bondi_k,
+    const SpinWeighted<ComplexDataVector, 0>& bondi_r,
+    const SpinWeighted<ComplexDataVector, 0>& one_minus_y) {
+  const auto sqrt_one_plus_k = sqrt(1. + bondi_k);
+  *a_coeff = one_minus_y * sqrt_one_plus_k / (4 * bondi_r);
+}
+
+void delta_du_commutator_coeff_b_impl(
+    const gsl::not_null<SpinWeighted<ComplexDataVector, 2>*> b_coeff,
+    const SpinWeighted<ComplexDataVector, 2>& bondi_j,
+    const SpinWeighted<ComplexDataVector, 0>& bondi_k,
+    const SpinWeighted<ComplexDataVector, 0>& bondi_r,
+    const SpinWeighted<ComplexDataVector, 0>& one_minus_y) {
+  const auto sqrt_one_plus_k = sqrt(1. + bondi_k);
+  *b_coeff = one_minus_y * bondi_j / (4 * bondi_r * sqrt_one_plus_k);
+}
+
+void exp_minus_2_beta_impl(
+    const gsl::not_null<SpinWeighted<ComplexDataVector, 0>*> exp_minus_2_beta,
+    const SpinWeighted<ComplexDataVector, 0>& exp_2_beta) {
+  *exp_minus_2_beta = 1. / exp_2_beta;
+}
 
 void bianchi_constraint_d_psi1_impl(
     const gsl::not_null<SpinWeighted<ComplexDataVector, 1>*> constraint_d_psi1,
@@ -358,6 +409,7 @@ void bianchi_constraint_d_psi2_impl(
   *constraint_d_psi2 = np_d_psi_2 + np_lambda * psi_0 - np_deltabar_psi_1 -
                        2 * (np_pi - np_alpha) * psi_1 - 3 * np_rho * psi_2;
 }
+
 }  // namespace
 
 void newman_penrose_alpha(
@@ -520,6 +572,32 @@ void newman_penrose_lambda(
                              get(exp_2_beta), get(one_minus_y));
 }
 
+void psi3_residue(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, -1>>*>
+        psi_3_part,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& np_epsilon,
+    const Scalar<SpinWeighted<ComplexDataVector, -2>>& np_lambda,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& np_mu,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& np_pi,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& dy_pi,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& np_nu,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& dy_nu,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& np_gamma,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& np_tau,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& exp_2_beta,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& bondi_u,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& eth_pi,
+    const Scalar<SpinWeighted<ComplexDataVector, -2>>& ethbar_pi,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_w,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y) {
+  psi3_residue_impl(make_not_null(&get(*psi_3_part)), get(np_epsilon),
+                    get(np_lambda), get(np_mu), get(np_pi), get(dy_pi),
+                    get(np_nu), get(dy_nu), get(np_gamma), get(np_tau),
+                    get(exp_2_beta), get(bondi_u), get(eth_pi), get(ethbar_pi),
+                    get(bondi_w), get(bondi_r), get(one_minus_y));
+}
+
 void bianchi_constraint_d_psi1(
     const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 1>>*>
         constraint_d_psi1,
@@ -553,6 +631,34 @@ void bianchi_constraint_d_psi2(
                                  get(np_alpha), get(np_lambda), get(np_rho),
                                  get(np_pi), get(psi_0), get(psi_1), get(psi_2),
                                  get(np_d_psi_2), get(np_deltabar_psi_1));
+}
+
+void delta_du_commutator_coeff_a(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*> a_coeff,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_k,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y) {
+  delta_du_commutator_coeff_a_impl(make_not_null(&get(*a_coeff)), get(bondi_k),
+                                   get(bondi_r), get(one_minus_y));
+}
+
+void delta_du_commutator_coeff_b(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> b_coeff,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& bondi_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_k,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y) {
+  delta_du_commutator_coeff_b_impl(make_not_null(&(get(*b_coeff))),
+                                   get(bondi_j), get(bondi_k), get(bondi_r),
+                                   get(one_minus_y));
+}
+
+void exp_minus_2_beta(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
+        exp_minus_2_beta,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& exp_2_beta) {
+  exp_minus_2_beta_impl(make_not_null(&(get(*exp_minus_2_beta))),
+                        get(exp_2_beta));
 }
 
 void VolumeWeyl<Tags::Psi0>::apply(

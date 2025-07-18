@@ -390,6 +390,11 @@ struct Exp2Beta : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
 };
 
+/// The value \f$\exp(-2\beta)\f$.
+struct ExpMinus2Beta : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
+};
+
 /// The value \f$ \bar{J} (Q - 2 \eth \beta ) \f$.
 struct JbarQMinus2EthBeta : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, -1>>;
@@ -516,6 +521,11 @@ struct Psi4 : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, -2>>;
 };
 
+/// Terms in \f$\Psi_3\f$ that do not depend on time derivatives
+struct Psi3Residue : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, -1>>;
+};
+
 /// First NP Bianchi constraint violation \f$ D\Psi_1\f$ - ...
 struct BianchiConstraintDPsi1 : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 1>>;
@@ -524,6 +534,14 @@ struct BianchiConstraintDPsi1 : db::SimpleTag {
 /// Second NP Bianchi constraint violation \f$ D\Psi_2\f$ - ...
 struct BianchiConstraintDPsi2 : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
+};
+
+struct DeltaDuCommutatorA : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
+};
+
+struct DeltaDuCommutatorB : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 2>>;
 };
 
 /// The gravitational wave strain \f$h\f$
