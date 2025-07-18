@@ -1069,7 +1069,6 @@ void bianchi_constraint_d_psi1(
     const Scalar<SpinWeighted<ComplexDataVector, 1>>& psi_1,
     const Scalar<SpinWeighted<ComplexDataVector, 1>>& np_d_psi_1,
     const Scalar<SpinWeighted<ComplexDataVector, 1>>& np_deltabar_psi_0);
-
 /*!
  * \brief Compute the second NP Bianchi identity violation:
  *
