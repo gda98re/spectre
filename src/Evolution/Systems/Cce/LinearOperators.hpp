@@ -161,6 +161,38 @@ struct NewmanPenroseDeltaBarCompute : NewmanPenroseDeltaBar<Tag>,
   }
 };
 
+template <typename Tag>
+struct NewmanPenroseNresidueCompute : NewmanPenroseNresidue<Tag>,
+                                      db::ComputeTag {
+  using base = NewmanPenroseNresidue<Tag>;
+  using return_type = typename base::type;
+  using argument_tags = tmpl::list<
+      Tags::Dy<Tag>,
+      Spectral::Swsh::Tags::Derivative<Tag, Spectral::Swsh::Tags::Eth>,
+      Spectral::Swsh::Tags::Derivative<Tag, Spectral::Swsh::Tags::Ethbar>,
+      Tags::BondiU, Tags::BondiW, Tags::BondiR, Tags::OneMinusY>;
+
+  static auto function(
+      const gsl::not_null<
+          Scalar<SpinWeighted<ComplexDataVector, Tag::type::type::spin>>*>
+          np_n_val,
+      const Scalar<SpinWeighted<ComplexDataVector, Tag::type::type::spin>>&
+          dy_val,
+      const Scalar<SpinWeighted<ComplexDataVector, Tag::type::type::spin + 1>>&
+          eth_val,
+      const Scalar<SpinWeighted<ComplexDataVector, Tag::type::type::spin - 1>>&
+          ethbar_val,
+      const Scalar<SpinWeighted<ComplexDataVector, 1>>& bondi_u,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_w,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y) {
+    get(*np_n_val) =
+        (-get(one_minus_y) * get(dy_val) *
+             (get(bondi_w) + get(one_minus_y) / (2 * get(bondi_r))) +
+         conj(get(bondi_u)) * get(eth_val) + get(bondi_u) * get(ethbar_val));
+  }
+};
+
 }  // namespace Tags
 
 }  // namespace Cce

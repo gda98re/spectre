@@ -1067,6 +1067,26 @@ void psi3_residue(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y);
 
+void psi4_residue(
+    gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, -2>>*> psi_4_part,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& np_alpha,
+    const Scalar<SpinWeighted<ComplexDataVector, +1>>& np_beta,
+    const Scalar<SpinWeighted<ComplexDataVector, -2>>& np_lambda,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& np_mu,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& np_pi,
+    const Scalar<SpinWeighted<ComplexDataVector, -2>>& dy_lambda,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& np_nu,
+    const Scalar<SpinWeighted<ComplexDataVector, -2>>& np_deltabar_nu,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& np_gamma,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& np_tau,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& exp_2_beta,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& bondi_u,
+    const Scalar<SpinWeighted<ComplexDataVector, -1>>& eth_lambda,
+    const Scalar<SpinWeighted<ComplexDataVector, -3>>& ethbar_lambda,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_w,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y);
+
 /*!
  * \brief Compute the first NP Bianchi identity violation:
  *
@@ -1125,6 +1145,12 @@ void delta_du_commutator_coeff_b(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y);
 
+void Nresidue_du_commutator_coeff_c(
+    gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*> c_coeff,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_w,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& bondi_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& one_minus_y);
+
 void exp_minus_2_beta(
     gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*> exp_minus_2_beta,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& exp_2_beta);
@@ -1134,7 +1160,7 @@ namespace Tags {
  * \brief Compute tag for all the terms in the $\Psi_3$ definition that do not
  * contain time derivatives.
  *
- * \details See documentation of `bianchi_constraint_d_psi1()` for definition.
+ * \details See documentation of `()` for definition.
  */
 struct Psi3ResidueCompute : Tags::Psi3Residue, db::ComputeTag {
   using base = Tags::Psi3Residue;
@@ -1169,6 +1195,49 @@ struct Psi3ResidueCompute : Tags::Psi3Residue, db::ComputeTag {
       const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
       const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
       const Scalar<SpinWeighted<ComplexDataVector, 0>>&)>(&psi3_residue);
+};
+
+/*!
+ * \brief Compute tag for all the terms in the $\Psi_4$ definition that do not
+ * contain time derivatives.
+ * \details See documentation of `()` for definition.
+ */
+struct Psi4ResidueCompute : Tags::Psi4Residue, db::ComputeTag {
+  using base = Tags::Psi4Residue;
+  using return_type = typename base::type;
+  using argument_tags =
+      tmpl::list<Tags::NewmanPenroseAlpha, Tags::NewmanPenroseBeta,
+                 Tags::NewmanPenroseLambda, Tags::NewmanPenroseMu,
+                 Tags::NewmanPenrosePi, Tags::Dy<Tags::NewmanPenroseLambda>,
+                 Tags::NewmanPenroseNu,
+                 Tags::NewmanPenroseDeltaBar<Tags::NewmanPenroseNu>,
+                 Tags::NewmanPenroseGamma, Tags::NewmanPenroseTau,
+                 Tags::Exp2Beta, Tags::BondiU,
+                 Spectral::Swsh::Tags::Derivative<Tags::NewmanPenroseLambda,
+                                                  Spectral::Swsh::Tags::Eth>,
+                 Spectral::Swsh::Tags::Derivative<Tags::NewmanPenroseLambda,
+                                                  Spectral::Swsh::Tags::Ethbar>,
+                 Tags::BondiW, Tags::BondiR, Tags::OneMinusY>;
+
+  static constexpr auto function = static_cast<void (*)(
+      gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, -2>>*>,
+      const Scalar<SpinWeighted<ComplexDataVector, -1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, +1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -2>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -2>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -2>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -1>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, -3>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&)>(&psi4_residue);
 };
 
 /*!
@@ -1266,6 +1335,26 @@ struct DeltaDuCommutatorBCompute : Tags::DeltaDuCommutatorB, db::ComputeTag {
       const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
       const Scalar<SpinWeighted<ComplexDataVector, 0>>&)>(
       &delta_du_commutator_coeff_b);
+};
+
+/*!
+ * \brief Compute tag for the coefficient multiplying ethbar in the definition
+ * of delta.
+ *
+ * \details See documentation of `delta_du_commutator_coeff_b()` for definition.
+ */
+struct NResidueDuCommutatorCCompute : Tags::NResidueDuCommutatorC,
+                                      db::ComputeTag {
+  using base = Tags::NResidueDuCommutatorC;
+  using return_type = typename base::type;
+  using argument_tags = tmpl::list<Tags::BondiW, Tags::BondiR, Tags::OneMinusY>;
+
+  static constexpr auto function = static_cast<void (*)(
+      gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>&)>(
+      &Nresidue_du_commutator_coeff_c);
 };
 
 /*!

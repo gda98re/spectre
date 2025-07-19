@@ -194,6 +194,14 @@ struct NewmanPenroseDeltaBar : db::PrefixTag, db::SimpleTag {
   using tag = Tag;
 };
 
+/// Newman-Penrose N directional derivative (term with spatial derivatives
+/// only),
+template <typename Tag>
+struct NewmanPenroseNresidue : db::PrefixTag, db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, Tag::type::type::spin>>;
+  using tag = Tag;
+};
+
 /// The spin-weight 2 angular Jacobian factor in the partially flat Bondi-like
 /// coordinates, see Eq. (31a) of \cite Moxon2020gha
 struct PartiallyFlatGaugeC : db::SimpleTag {
@@ -526,6 +534,10 @@ struct Psi3Residue : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, -1>>;
 };
 
+/// Terms in \f$\Psi_4\f$ that do not depend on time derivatives
+struct Psi4Residue : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, -2>>;
+};
 /// First NP Bianchi constraint violation \f$ D\Psi_1\f$ - ...
 struct BianchiConstraintDPsi1 : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 1>>;
@@ -542,6 +554,10 @@ struct DeltaDuCommutatorA : db::SimpleTag {
 
 struct DeltaDuCommutatorB : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 2>>;
+};
+
+struct NResidueDuCommutatorC : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
 };
 
 /// The gravitational wave strain \f$h\f$
