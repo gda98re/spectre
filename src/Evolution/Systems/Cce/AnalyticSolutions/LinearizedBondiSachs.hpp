@@ -36,7 +36,7 @@ namespace InitializeJ {
 // as a consequence, this initial data generator is deliberately not
 // option-creatable; it should only be obtained from the `get_initialize_j`
 // function of `Cce::InitializeJ::LinearizedBondiSachs`.
-struct LinearizedBondiSachs : ::Cce::InitializeJ::InitializeJ<false> {
+struct LinearizedBondiSachs : ::Cce::InitializeJ::InitializeJ<true> {
   WRAPPED_PUPable_decl_template(LinearizedBondiSachs);  // NOLINT
   explicit LinearizedBondiSachs(CkMigrateMessage* /*unused*/) {}
 
@@ -54,6 +54,10 @@ struct LinearizedBondiSachs : ::Cce::InitializeJ::InitializeJ<false> {
       gsl::not_null<
           tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
           angular_cauchy_coordinates,
+      gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+      gsl::not_null<
+          tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+          angular_inertial_coordinates,
       const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
       const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
       const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
@@ -132,7 +136,7 @@ struct LinearizedBondiSachs : public SphericalMetricData {
   };
 
   static constexpr Options::String help{
-    "A linearized Bondi-Sachs analytic solution"};
+      "A linearized Bondi-Sachs analytic solution"};
 
   using options = tmpl::list<InitialModes, ExtractionRadius, Frequency>;
 
@@ -153,7 +157,7 @@ struct LinearizedBondiSachs : public SphericalMetricData {
 
   void pup(PUP::er& p) override;
 
-  std::unique_ptr<Cce::InitializeJ::InitializeJ<false>> get_initialize_j(
+  std::unique_ptr<Cce::InitializeJ::InitializeJ<true>> get_initialize_j(
       double start_time) const override;
 
  protected:

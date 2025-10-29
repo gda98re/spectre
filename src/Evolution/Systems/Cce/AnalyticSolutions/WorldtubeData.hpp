@@ -131,9 +131,9 @@ struct WorldtubeData : public PUP::able {
   //   return std::make_unique<Cce::InitializeJ::ConformalFactor>();
   // };
 
-  virtual std::unique_ptr<Cce::InitializeJ::InitializeJ<false>>
-  get_initialize_j(const double /*start_time*/) const {
-    return std::make_unique<Cce::InitializeJ::InverseCubic<false>>();
+  virtual std::unique_ptr<Cce::InitializeJ::InitializeJ<true>> get_initialize_j(
+      const double /*start_time*/) const {
+    return std::make_unique<Cce::InitializeJ::InverseCubic<true>>();
   };
 
   virtual bool use_noninertial_news() const { return false; }

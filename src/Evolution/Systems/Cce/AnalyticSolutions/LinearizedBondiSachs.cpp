@@ -47,6 +47,10 @@ void LinearizedBondiSachs::operator()(
     const gsl::not_null<
         tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
         angular_cauchy_coordinates,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_inertial_coordinates,
     const Scalar<SpinWeighted<ComplexDataVector, 2>>& /*boundary_j*/,
     const Scalar<SpinWeighted<ComplexDataVector, 2>>& /*boundary_dr_j*/,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
@@ -95,6 +99,8 @@ void LinearizedBondiSachs::operator()(
   }
   Spectral::Swsh::create_angular_and_cartesian_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max);
+  *cartesian_inertial_coordinates = *cartesian_cauchy_coordinates;
+  *angular_inertial_coordinates = *angular_cauchy_coordinates;
 }
 
 void LinearizedBondiSachs::pup(PUP::er& p) {
@@ -106,7 +112,7 @@ void LinearizedBondiSachs::pup(PUP::er& p) {
   p | time_;
 }
 
-std::unique_ptr<::Cce::InitializeJ::InitializeJ<false>>
+std::unique_ptr<::Cce::InitializeJ::InitializeJ<true>>
 LinearizedBondiSachs::get_clone() const {
   return std::make_unique<LinearizedBondiSachs>(*this);
 }
@@ -593,7 +599,7 @@ void LinearizedBondiSachs::variables_impl(
       frequency_, time);
 }
 
-std::unique_ptr<Cce::InitializeJ::InitializeJ<false>>
+std::unique_ptr<Cce::InitializeJ::InitializeJ<true>>
 LinearizedBondiSachs::get_initialize_j(const double start_time) const {
   return std::make_unique<
       LinearizedBondiSachs_detail::InitializeJ::LinearizedBondiSachs>(

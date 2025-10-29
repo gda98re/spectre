@@ -511,12 +511,12 @@ struct InitializeJ : db::SimpleTag {
 
 // Tags that generates an `Cce::InitializeJ::InitializeJ` derived class from an
 // analytic solution.
-struct AnalyticInitializeJ : InitializeJ<false> {
-  using base = InitializeJ<false>;
+struct AnalyticInitializeJ : InitializeJ<true> {
+  using base = InitializeJ<true>;
   using option_tags =
       tmpl::list<OptionTags::AnalyticSolution, OptionTags::StartTime>;
   static constexpr bool pass_metavariables = false;
-  static std::unique_ptr<::Cce::InitializeJ::InitializeJ<false>>
+  static std::unique_ptr<::Cce::InitializeJ::InitializeJ<true>>
   create_from_options(
       const std::unique_ptr<Cce::Solutions::WorldtubeData>& worldtube_data,
       const std::optional<double> start_time) {
