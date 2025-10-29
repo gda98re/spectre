@@ -32,7 +32,7 @@ namespace InitializeJ {
  * iterative procedure are determined by options
  * `AngularCoordinateTolerance` and `MaxIterations`.
  */
-struct NoIncomingRadiation : InitializeJ<false> {
+struct PreMatching : InitializeJ<false> {
   struct AngularCoordinateTolerance {
     using type = double;
     static std::string name() { return "AngularCoordTolerance"; }
@@ -65,13 +65,13 @@ struct NoIncomingRadiation : InitializeJ<false> {
       "Initialization process where J is set so Psi0 is vanishing\n"
       "(roughly a no incoming radiation condition)"};
 
-  WRAPPED_PUPable_decl_template(NoIncomingRadiation);  // NOLINT
-  explicit NoIncomingRadiation(CkMigrateMessage* /*unused*/) {}
+  WRAPPED_PUPable_decl_template(PreMatching);  // NOLINT
+  explicit PreMatching(CkMigrateMessage* /*unused*/) {}
 
-  NoIncomingRadiation(double angular_coordinate_tolerance,
-                      size_t max_iterations, bool require_convergence = false);
+  PreMatching(double angular_coordinate_tolerance, size_t max_iterations,
+              bool require_convergence = false);
 
-  NoIncomingRadiation() = default;
+  PreMatching() = default;
 
   std::unique_ptr<InitializeJ> get_clone() const override;
 

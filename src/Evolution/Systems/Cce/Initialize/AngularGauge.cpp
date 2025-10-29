@@ -32,10 +32,11 @@ AngularGauge::AngularGauge(CkMigrateMessage* msg) : InitializeJ<false>(msg) {}
 
 AngularGauge::AngularGauge(std::string input_filename,
                            std::string input_subfile_name_coord,
-                           double start_time)
+                           double start_time, size_t order)
     : input_filename_{std::move(input_filename)},
       input_subfile_name_coord_{std::move(input_subfile_name_coord)},
-      start_time_{std::move(start_time)} {}
+      start_time_{std::move(start_time)},
+      order_{std::move(order)} {}
 
 std::unique_ptr<InitializeJ<false>> AngularGauge::get_clone() const {
   return std::make_unique<AngularGauge>(*this);
@@ -62,8 +63,9 @@ void AngularGauge::operator()(
                        ::Tags::TempSpinWeightedScalar<3, 2>,
                        ::Tags::TempSpinWeightedScalar<4, 2>,
                        ::Tags::TempSpinWeightedScalar<5, 2>,
-                       ::Tags::TempSpinWeightedScalar<6, 0>,
-                       ::Tags::TempSpinWeightedScalar<7, 0>>>
+                       ::Tags::TempSpinWeightedScalar<6, 2>,
+                       ::Tags::TempSpinWeightedScalar<7, 0>,
+                       ::Tags::TempSpinWeightedScalar<8, 0>>>
       buffers{number_of_angular_points};
   auto& surface_j_buffer = get<::Tags::TempSpinWeightedScalar<0, 2>>(buffers);
   auto& surface_dr_j_buffer =
@@ -75,15 +77,18 @@ void AngularGauge::operator()(
   auto& one_minus_y_cubed_coefficient =
       get(get<::Tags::TempSpinWeightedScalar<4, 2>>(buffers));
 
-  auto& gauge_c = get<::Tags::TempSpinWeightedScalar<5, 2>>(buffers);
-  auto& gauge_d = get<::Tags::TempSpinWeightedScalar<6, 0>>(buffers);
+  auto& one_minus_y_quartic_coefficient =
+      get(get<::Tags::TempSpinWeightedScalar<5, 2>>(buffers));
 
-  auto& gauge_omega = get<::Tags::TempSpinWeightedScalar<7, 0>>(buffers);
+  auto& gauge_c = get<::Tags::TempSpinWeightedScalar<6, 2>>(buffers);
+  auto& gauge_d = get<::Tags::TempSpinWeightedScalar<7, 0>>(buffers);
+
+  auto& gauge_omega = get<::Tags::TempSpinWeightedScalar<8, 0>>(buffers);
 
   // Read angular coordinates from Cce Volume file (Tag::CauchyCartesianCoords)
-  h5::H5File<h5::AccessType::ReadOnly> cce_data_file{input_filename_};
+  h5::H5File<h5::AccessType::ReadOnly> cce_coord_file{input_filename_};
   auto& data_coord =
-      cce_data_file.get<h5::VolumeData>(input_subfile_name_coord_);
+      cce_coord_file.get<h5::VolumeData>(input_subfile_name_coord_);
   if (data_coord.list_observation_ids().size() == 0) {
     ERROR("The observation IDs list is empty");
   }
@@ -111,6 +116,8 @@ void AngularGauge::operator()(
   get<2>(*cartesian_cauchy_coordinates) =
       std::get<DataVector>(coord_tensor_component_z.data);
 
+  cce_coord_file.close();
+
   // This function transforms the unit vector in cartesian coordinates to
   // spherical coordinates
   GaugeUpdateAngularFromCartesian<
@@ -135,7 +142,7 @@ void AngularGauge::operator()(
                                           angular_cauchy_coordinates,
                                           *cartesian_cauchy_coordinates, l_max);
 
-  // This code generates J, dr_J and R in the new angular gauge
+  // This code transforms J, dr_J and R in the new angular gauge
   get(gauge_omega).data() =
       0.5 * sqrt(get(gauge_d).data() * conj(get(gauge_d).data()) -
                  get(gauge_c).data() * conj(get(gauge_c).data()));
@@ -153,20 +160,125 @@ void AngularGauge::operator()(
                                          Spectral::Quadrature::GaussLobatto>(
                 number_of_radial_points);
 
-  one_minus_y_coefficient =
-      0.25 * (3.0 * get(surface_j_buffer) +
-              get(surface_r_buffer) * get(surface_dr_j_buffer));
-  one_minus_y_cubed_coefficient =
-      -0.0625 * (get(surface_j_buffer) +
-                 get(surface_r_buffer) * get(surface_dr_j_buffer));
-  for (size_t i = 0; i < number_of_radial_points; i++) {
-    ComplexDataVector angular_view_j{
-        get(*j).data().data() + get(boundary_j).size() * i,
-        get(boundary_j).size()};
-    angular_view_j =
-        one_minus_y_collocation[i] * one_minus_y_coefficient.data() +
-        pow<3>(one_minus_y_collocation[i]) *
-            one_minus_y_cubed_coefficient.data();
+  if (order_ == 0) {
+    // Zero order worldtube matching
+    one_minus_y_coefficient = 0.5 * get(surface_j_buffer);
+
+    for (size_t i = 0; i < number_of_radial_points; i++) {
+      ComplexDataVector angular_view_j{
+          get(*j).data().data() + get(boundary_j).size() * i,
+          get(boundary_j).size()};
+      // angular_view_j =
+      //     one_minus_y_collocation[i] * one_minus_y_coefficient.data();
+      angular_view_j =
+          one_minus_y_collocation[i] * one_minus_y_coefficient.data();
+    }
+
+  } else if (order_ == 1) {
+    // First order worldtube matching
+    one_minus_y_coefficient =
+        0.25 * (3.0 * get(surface_j_buffer) +
+                get(surface_r_buffer) * get(surface_dr_j_buffer));
+
+    one_minus_y_cubed_coefficient =
+        -0.0625 * (get(surface_j_buffer) +
+                   get(surface_r_buffer) * get(surface_dr_j_buffer));
+    for (size_t i = 0; i < number_of_radial_points; i++) {
+      ComplexDataVector angular_view_j{
+          get(*j).data().data() + get(boundary_j).size() * i,
+          get(boundary_j).size()};
+      // angular_view_j =
+      //     one_minus_y_collocation[i] * one_minus_y_coefficient.data();
+      angular_view_j =
+          one_minus_y_collocation[i] * one_minus_y_coefficient.data() +
+          pow<3>(one_minus_y_collocation[i]) *
+              one_minus_y_cubed_coefficient.data();
+    }
+  } else if (order_ == 2) {
+    // Second order worldtube matching
+
+    // Reading dy^2 J from file
+    // Read angular coordinates from Cce Volume file
+    // (Tag::CauchyCartesianCoords)
+    h5::H5File<h5::AccessType::ReadOnly> cce_dy2j_file{input_filename_};
+    auto& data_dy2j =
+        cce_dy2j_file.get<h5::VolumeData>("CceVolumeData/VolumeData");
+    if (data_dy2j.list_observation_ids().size() == 0) {
+      ERROR("The observation IDs list is empty");
+    }
+    size_t target_obs_id_dy2j = data_dy2j.find_observation_id(start_time_);
+
+    const auto& dy2j_tensor_comp =
+        data_dy2j.get_tensor_component(target_obs_id_dy2j, "Dy(Dy(J))");
+
+    // Convert to complex nodal
+    const auto& modal_dy2j_goldberg_interleaved =
+        std::get<DataVector>(dy2j_tensor_comp.data);
+    const size_t l_max_plus_one_squared = square(l_max + 1);
+    if (modal_dy2j_goldberg_interleaved.size() !=
+        2 * number_of_radial_points * l_max_plus_one_squared) {
+      ERROR(std::string("Mismatch between l_max or number of radial points"));
+    }
+
+    // Recasting the DataVector (real) into a ComplexModalVector (complex).
+    // Both these sets of modes are in Goldberg convention
+
+    SpinWeighted<ComplexModalVector, 2> modal_dy2j_goldberg{
+        number_of_radial_points * l_max_plus_one_squared};
+    for (size_t i = 0; i < modal_dy2j_goldberg.size(); i++) {
+      modal_dy2j_goldberg.data()[i] =
+          std::complex<double>(modal_dy2j_goldberg_interleaved[2 * i],
+                               modal_dy2j_goldberg_interleaved[(2 * i) + 1]);
+    }
+    cce_dy2j_file.close();
+
+    // Convert from goldberg modes to nodal values
+    SpinWeighted<ComplexDataVector, 2> dy2_j{get(*j).data().size()};
+    Spectral::Swsh::goldberg_to_nodal(make_not_null(&dy2_j),
+                                      modal_dy2j_goldberg, l_max);
+
+    // Extract the boundary value of dy^2 J
+    const SpinWeighted<ComplexDataVector, 2> surface_dy2_j;
+    make_const_view(make_not_null(&surface_dy2_j), dy2_j, 0,
+                    number_of_angular_points);
+
+    // Convert to dr^2 j
+    SpinWeighted<ComplexDataVector, 2> surface_r_squared_dr2_j{
+        get(*j).data().size()};
+    surface_r_squared_dr2_j =
+        -2 * get(surface_r_buffer) * get(surface_dr_j_buffer) +
+        4 * surface_dy2_j;
+
+    one_minus_y_coefficient =
+        (12 * get(surface_j_buffer) +
+         8 * get(surface_r_buffer) * get(surface_dr_j_buffer) +
+         surface_r_squared_dr2_j) /
+        12.;
+
+    one_minus_y_cubed_coefficient =
+        -(4 * get(surface_j_buffer) +
+          6 * get(surface_r_buffer) * get(surface_dr_j_buffer) +
+          surface_r_squared_dr2_j) /
+        16.;
+
+    one_minus_y_quartic_coefficient =
+        (3 * get(surface_j_buffer) +
+         5 * get(surface_r_buffer) * get(surface_dr_j_buffer) +
+         surface_r_squared_dr2_j) /
+        48.;
+    for (size_t i = 0; i < number_of_radial_points; i++) {
+      ComplexDataVector angular_view_j{
+          get(*j).data().data() + get(boundary_j).size() * i,
+          get(boundary_j).size()};
+      // angular_view_j =
+      //     one_minus_y_collocation[i] * one_minus_y_coefficient.data();
+      angular_view_j =
+          one_minus_y_collocation[i] * one_minus_y_coefficient.data() +
+          pow<3>(one_minus_y_collocation[i]) *
+              one_minus_y_cubed_coefficient.data() +
+          pow<4>(one_minus_y_collocation[i]) *
+              one_minus_y_quartic_coefficient.data();
+    }
   }
 }
 
@@ -174,6 +286,7 @@ void AngularGauge::pup(PUP::er& p) {
   p | input_filename_;
   p | input_subfile_name_coord_;
   p | start_time_;
+  p | order_;
 }
 
 PUP::able::PUP_ID AngularGauge::my_PUP_ID = 0;

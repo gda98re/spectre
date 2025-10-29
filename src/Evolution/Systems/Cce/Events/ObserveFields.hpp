@@ -210,7 +210,10 @@ class ObserveFields : public Event {
                  Tags::NewmanPenroseD<Tags::Psi1>,
                  Tags::NewmanPenroseD<Tags::Psi2>,
                  Tags::EthRDividedByR,
-                 Tags::DuRDividedByR>>;
+                 Tags::DuRDividedByR,
+                 Tags::BondiJCauchyView,
+                 Tags::Dy<Tags::BondiJCauchyView>,
+                 Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>;
   // clang-format on
 
  public:

@@ -188,14 +188,13 @@ struct ConformalFactor : InitializeJ<false> {
   void pup(PUP::er& p) override;
 
  private:
-  double angular_coordinate_tolerance_ = 1.0e-11;
-  size_t max_iterations_ = 300;
-  bool require_convergence_ = true;
+  double angular_coordinate_tolerance_ = 1.0e-13;
+  size_t max_iterations_ = 1000;
+  bool require_convergence_ = false;
   bool optimize_l_0_mode_ = false;
-  bool use_beta_integral_estimate_ = true;
+  bool use_beta_integral_estimate_ = false;
   ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic_ =
-      ::Cce::InitializeJ::ConformalFactorIterationHeuristic::
-          SpinWeight1CoordPerturbation;
+      ::Cce::InitializeJ::ConformalFactorIterationHeuristic::OnlyVaryGaugeD;
   bool use_input_modes_ = false;
   std::vector<std::complex<double>> input_modes_;
   std::optional<std::string> input_mode_filename_;

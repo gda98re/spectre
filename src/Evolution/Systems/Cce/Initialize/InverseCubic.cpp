@@ -18,6 +18,7 @@
 #include "NumericalAlgorithms/Spectral/Quadrature.hpp"
 #include "NumericalAlgorithms/SpinWeightedSphericalHarmonics/SwshCollocation.hpp"
 #include "NumericalAlgorithms/SpinWeightedSphericalHarmonics/SwshInterpolation.hpp"
+#include "Parallel/Printf/Printf.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -67,6 +68,7 @@ void InverseCubic<true>::operator()(
         one_minus_y_collocation[i] * one_minus_y_coefficient +
         pow<3>(one_minus_y_collocation[i]) * one_minus_y_cubed_coefficient;
   }
+
   Spectral::Swsh::create_angular_and_cartesian_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max);
   // Same as the Cauchy coordinates
@@ -90,6 +92,7 @@ void InverseCubic<false>::operator()(
       1.0 - Spectral::collocation_points<Spectral::Basis::Legendre,
                                          Spectral::Quadrature::GaussLobatto>(
                 number_of_radial_points);
+  Parallel::printf("false");
   for (size_t i = 0; i < number_of_radial_points; i++) {
     ComplexDataVector angular_view_j{
         get(*j).data().data() + get(boundary_j).size() * i,
@@ -107,6 +110,7 @@ void InverseCubic<false>::operator()(
         one_minus_y_collocation[i] * one_minus_y_coefficient +
         pow<3>(one_minus_y_collocation[i]) * one_minus_y_cubed_coefficient;
   }
+
   Spectral::Swsh::create_angular_and_cartesian_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max);
 }

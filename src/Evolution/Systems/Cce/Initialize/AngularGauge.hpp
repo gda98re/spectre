@@ -40,7 +40,7 @@ struct AngularGauge : InitializeJ<false> {
     using type = std::string;
     static constexpr Options::String help = {
         "The subfile name inside the H5 file, e.g. "
-        "'CartesianCauchyCoordinates.dat' where data "
+        "CceVolumeData/CauchyCartesianCoords where data "
         "is storted"};
   };
   struct StartTime {
@@ -49,7 +49,13 @@ struct AngularGauge : InitializeJ<false> {
         "Start time at which read the input volume h5 file"};
   };
 
-  using options = tmpl::list<H5Filename, SubfileNameCoord, StartTime>;
+  struct Order {
+    using type = size_t;
+    static constexpr Options::String help = {
+        "Matching order, can be 0 (IL), 1 (IC), 2 (IQ)"};
+  };
+
+  using options = tmpl::list<H5Filename, SubfileNameCoord, StartTime, Order>;
   static constexpr Options::String help = {
       "Generate CCE initial data based on h5 file"};
 
@@ -58,7 +64,7 @@ struct AngularGauge : InitializeJ<false> {
 
   AngularGauge() = default;
   AngularGauge(std::string input_filename, std::string input_subfile_name_coord,
-               double start_time);
+               double start_time, size_t order);
 
   std::unique_ptr<InitializeJ> get_clone() const override;
 
@@ -78,9 +84,15 @@ struct AngularGauge : InitializeJ<false> {
   void pup(PUP::er& p) override;
 
  private:
-  std::string input_filename_;
-  std::string input_subfile_name_coord_;
-  double start_time_;
+  // std::string input_filename_ =
+  //     "/home/fs01/spec1187/CCE_initial_data/Tests/InputFilesAGRandom/"
+  //     "AngularGaugeTWPert20.h5";
+  std::string input_filename_ =
+      "/home/fs01/spec1187/CCE_initial_data/Tests/InputFilesIC/"
+      "CharacteristicExtractVolumeTeukolskyWave.h5";
+  std::string input_subfile_name_coord_ = "CceVolumeData/CauchyCartesianCoords";
+  double start_time_ = 0.0;
+  size_t order_ = 2;
 };
 
 }  // namespace InitializeJ

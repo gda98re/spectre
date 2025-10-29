@@ -84,10 +84,12 @@ struct ReadJFromFile : InitializeJ<false> {
   void pup(PUP::er& p) override;
 
  private:
-  std::string input_filename_;
-  std::string input_subfile_name_j_;
-  std::string input_subfile_name_coord_;
-  double start_time_;
+  std::string input_filename_ =
+      "/home/fs01/spec1187/CCE_initial_data/Tests/InputFilesIC/"
+      "CharacteristicExtractVolumeTeukolskyWave.h5";
+  std::string input_subfile_name_j_ = "CceVolumeData/VolumeData";
+  std::string input_subfile_name_coord_ = "CceVolumeData/CauchyCartesianCoords";
+  double start_time_ = 0.0;
 };
 
 }  // namespace InitializeJ

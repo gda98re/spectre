@@ -129,6 +129,7 @@ struct BondiW : db::SimpleTag {
 /// Bondi parameter \f$\bar{J}\f$ in the Cauchy frame
 struct BondiJCauchyView : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 2>>;
+  static std::string name() { return "BondiJCauchy"; }
 };
 
 /// The derivative with respect to the numerical coordinate \f$y = 1 - 2R/r\f$,

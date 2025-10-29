@@ -11,10 +11,14 @@
 #include "DataStructures/SpinWeighted.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/Cce/Initialize/InitializeJ.hpp"
+#include "IO/H5/Dat.hpp"
+#include "IO/H5/File.hpp"
 #include "NumericalAlgorithms/OdeIntegration/OdeIntegration.hpp"
 #include "NumericalAlgorithms/Spectral/Basis.hpp"
 #include "NumericalAlgorithms/Spectral/CollocationPoints.hpp"
 #include "NumericalAlgorithms/Spectral/Quadrature.hpp"
+#include "Parallel/NodeLock.hpp"
+#include "Parallel/Printf/Printf.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/Serialization/CharmPupable.hpp"
@@ -75,10 +79,10 @@ void radial_evolve_psi0_condition(
   const auto& y_collocation =
       Spectral::collocation_points<Spectral::Basis::Legendre,
                                    Spectral::Quadrature::GaussLobatto>(
-                                       number_of_radial_points);
+          number_of_radial_points);
   for (size_t y_collocation_point = 0;
        y_collocation_point < number_of_radial_points; ++y_collocation_point) {
-    while(step_range.second < y_collocation[y_collocation_point]) {
+    while (step_range.second < y_collocation[y_collocation_point]) {
       step_range = dense_stepper.do_step(psi_0_condition_system);
     }
     if (step_range.second < y_collocation[y_collocation_point] or
@@ -120,12 +124,117 @@ void NoIncomingRadiation::operator()(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& /*beta*/,
     const size_t l_max, const size_t number_of_radial_points,
-    const gsl::not_null<Parallel::NodeLock*> /*hdf5_lock*/) const {
+    const gsl::not_null<Parallel::NodeLock*> hdf5_lock) const {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
   radial_evolve_psi0_condition(make_not_null(&get(*j)), get(boundary_j),
                                get(boundary_dr_j), get(r), l_max,
                                number_of_radial_points);
+
+  // Write J to disk for debugging/analysis
+  const size_t num_modes = square(l_max + 1) * number_of_radial_points;
+  SpinWeighted<ComplexModalVector, 2> j_goldberg_modes{num_modes};
+  Spectral::Swsh::nodal_to_goldberg(make_not_null(&j_goldberg_modes), get(*j),
+                                    l_max);
+
+  // Build interleaved real/imag doubles for Dat
+  std::vector<double> j_data(2 * num_modes);
+  for (size_t i = 0; i < num_modes; ++i) {
+    const auto c = j_goldberg_modes.data()[i];  // std::complex<double>
+    j_data[2 * i] = c.real();
+    j_data[2 * i + 1] = c.imag();  // NOLINT
+  }
+
+  // Write boundary J to disk for debugging/analysis
+  SpinWeighted<ComplexModalVector, 2> boundary_j_goldberg_modes{num_modes};
+  Spectral::Swsh::nodal_to_goldberg(make_not_null(&boundary_j_goldberg_modes),
+                                    get(boundary_j), l_max);
+
+  // Build interleaved real/imag doubles for Dat
+  std::vector<double> boundary_j_data(2 * num_modes);
+  for (size_t i = 0; i < num_modes; ++i) {
+    const auto c = boundary_j_goldberg_modes.data()[i];  // std::complex<double>
+    boundary_j_data[2 * i] = c.real();
+    boundary_j_data[2 * i + 1] = c.imag();  // NOLINT
+  }
+
+  // Write boundary drJ to disk for debugging/analysis
+  SpinWeighted<ComplexModalVector, 2> boundary_dr_j_goldberg_modes{num_modes};
+  Spectral::Swsh::nodal_to_goldberg(
+      make_not_null(&boundary_dr_j_goldberg_modes), get(boundary_dr_j), l_max);
+
+  // Build interleaved real/imag doubles for Dat
+  std::vector<double> boundary_dr_j_data(2 * num_modes);
+  for (size_t i = 0; i < num_modes; ++i) {
+    const auto c =
+        boundary_dr_j_goldberg_modes.data()[i];  // std::complex<double>
+    boundary_dr_j_data[2 * i] = c.real();
+    boundary_dr_j_data[2 * i + 1] = c.imag();  // NOLINT
+  }
+
+  // Write boundary drJ to disk for debugging/analysis
+  SpinWeighted<ComplexModalVector, 0> r_goldberg_modes{num_modes};
+  Spectral::Swsh::nodal_to_goldberg(make_not_null(&r_goldberg_modes), get(r),
+                                    l_max);
+
+  // Build interleaved real/imag doubles for Dat
+  std::vector<double> r_data(2 * num_modes);
+  for (size_t i = 0; i < num_modes; ++i) {
+    const auto c = r_goldberg_modes.data()[i];  // std::complex<double>
+    r_data[2 * i] = c.real();
+    r_data[2 * i + 1] = c.imag();  // NOLINT
+  }
+
+  // Lock for thread safety
+  hdf5_lock->lock();
+  {
+    const std::string filename = "OriginalGaugeInitialJ.h5";
+    if (file_system::check_if_file_exists(filename)) {
+      file_system::rm(filename, true);  // true = recursive
+    }
+    // Open or create file for writing
+    h5::H5File<h5::AccessType::ReadWrite> cce_data_file{
+        filename, /*append_to_file=*/true};
+    {
+      // Create or open the Dat subfile
+      auto& dat_file_j = cce_data_file.try_insert<h5::Dat>(
+          "/OriginalGaugeJ", std::vector<std::string>{"BondiJ"}, 0);
+      for (double coeff : j_data) {
+        dat_file_j.append({coeff});  // one value per row
+      }
+      cce_data_file.close_current_object();
+    }
+
+    {
+      auto& dat_file_boundary_j = cce_data_file.try_insert<h5::Dat>(
+          "/OriginalGaugeBoundaryJ", std::vector<std::string>{"BoundaryJ"}, 0);
+      for (double coeff : boundary_j_data) {
+        dat_file_boundary_j.append({coeff});  // one value per row
+      }
+      cce_data_file.close_current_object();
+    }
+
+    {
+      auto& dat_file_boundary_dr_j = cce_data_file.try_insert<h5::Dat>(
+          "/OriginalGaugeBoundaryDrJ", std::vector<std::string>{"BoundaryDrJ"},
+          0);
+      for (double coeff : boundary_dr_j_data) {
+        dat_file_boundary_dr_j.append({coeff});  // one value per row
+      }
+      cce_data_file.close_current_object();
+    }
+    {
+      auto& dat_file_r = cce_data_file.try_insert<h5::Dat>(
+          "/OriginalGaugeR", std::vector<std::string>{"R"}, 0);
+
+      for (double coeff : r_data) {
+        dat_file_r.append({coeff});  // one value per row
+      }
+      cce_data_file.close_current_object();
+    }
+  }
+  hdf5_lock->unlock();
+
   const SpinWeighted<ComplexDataVector, 2> j_at_scri_view;
   make_const_view(make_not_null(&j_at_scri_view), get(*j),
                   (number_of_radial_points - 1) * number_of_angular_points,

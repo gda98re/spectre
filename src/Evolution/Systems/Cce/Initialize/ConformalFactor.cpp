@@ -88,8 +88,7 @@ void only_vary_gauge_d_heuristic(
     const SpinWeighted<ComplexDataVector, 0>& omega_filtered,
     const SpinWeighted<ComplexDataVector, 0>& target_omega,
     const SpinWeighted<ComplexDataVector, 2>& /*gauge_c*/,
-    const SpinWeighted<ComplexDataVector, 0>& gauge_d,
-    const size_t /*l_max*/) {
+    const SpinWeighted<ComplexDataVector, 0>& gauge_d, const size_t /*l_max*/) {
   // The alteration in each of the spin-weighted Jacobian factors determined
   // by linearizing the system in small \Delta \omega
   gauge_d_step->data() = full_omega.data() *
@@ -124,8 +123,7 @@ ConformalFactor::ConformalFactor(
     const bool use_beta_integral_estimate,
     const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
         iteration_heuristic,
-    const bool use_input_modes,
-    std::vector<std::complex<double>> input_modes)
+    const bool use_input_modes, std::vector<std::complex<double>> input_modes)
     : angular_coordinate_tolerance_{angular_coordinate_tolerance},
       max_iterations_{max_iterations},
       require_convergence_{require_convergence},

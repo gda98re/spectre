@@ -8,6 +8,7 @@
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
+#include "Evolution/Systems/Cce/Initialize/ConformalFactor.hpp"
 #include "Evolution/Systems/Cce/Initialize/InitializeJ.hpp"
 #include "Evolution/Systems/Cce/Initialize/InverseCubic.hpp"
 #include "Evolution/Systems/Cce/Tags.hpp"
@@ -124,6 +125,11 @@ struct WorldtubeData : public PUP::able {
   }
 
   void pup(PUP::er& p) override;
+
+  // virtual std::unique_ptr<Cce::InitializeJ::InitializeJ<false>>
+  // get_initialize_j(const double /*start_time*/) const {
+  //   return std::make_unique<Cce::InitializeJ::ConformalFactor>();
+  // };
 
   virtual std::unique_ptr<Cce::InitializeJ::InitializeJ<false>>
   get_initialize_j(const double /*start_time*/) const {
