@@ -90,6 +90,8 @@ struct ObservationLMax {
   using type = size_t;
   static constexpr Options::String help{"Maximum l value for swsh output"};
   using group = Cce;
+  static constexpr size_t lower_bound() { return 2; }
+  static constexpr size_t suggested_value() { return 8; }
 };
 
 struct ExtractionRadius {
