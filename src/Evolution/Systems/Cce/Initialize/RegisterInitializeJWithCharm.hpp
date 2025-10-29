@@ -19,13 +19,9 @@ struct LinearizedBondiSachs;
 template <bool EvolveCcm, typename BoundaryComponent>
 void register_initialize_j_with_charm() {
   PUPable_reg(SINGLE_ARG(Solutions::LinearizedBondiSachs_detail::InitializeJ::
-                         LinearizedBondiSachs));
+                             LinearizedBondiSachs));
 
-  if constexpr (tt::is_a_v<AnalyticWorldtubeBoundary, BoundaryComponent>) {
-    register_derived_classes_with_charm<Cce::InitializeJ::InitializeJ<false>>();
-  } else {
-    register_derived_classes_with_charm<
-        Cce::InitializeJ::InitializeJ<EvolveCcm>>();
-  }
+  register_derived_classes_with_charm<
+      Cce::InitializeJ::InitializeJ<EvolveCcm>>();
 }
 }  // namespace Cce

@@ -18,8 +18,10 @@
 #include "NumericalAlgorithms/Spectral/Quadrature.hpp"
 #include "NumericalAlgorithms/SpinWeightedSphericalHarmonics/SwshCollocation.hpp"
 #include "NumericalAlgorithms/SpinWeightedSphericalHarmonics/SwshInterpolation.hpp"
+#include "Parallel/NodeLock.hpp"
 #include "Parallel/Printf/Printf.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/System/ParallelInfo.hpp"  // for sys::my_proc()
 #include "Utilities/TMPL.hpp"
 
 namespace Cce::InitializeJ {
@@ -47,7 +49,7 @@ void InverseCubic<true>::operator()(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& /*beta*/,
     const size_t l_max, const size_t number_of_radial_points,
     const gsl::not_null<Parallel::NodeLock*> /*hdf5_lock*/) const {
-  Parallel::printf("true");
+  Parallel::printf("true \n");
   const DataVector one_minus_y_collocation =
       1.0 - Spectral::collocation_points<Spectral::Basis::Legendre,
                                          Spectral::Quadrature::GaussLobatto>(
@@ -75,6 +77,47 @@ void InverseCubic<true>::operator()(
   // Same as the Cauchy coordinates
   Spectral::Swsh::create_angular_and_cartesian_coordinates(
       cartesian_inertial_coordinates, angular_inertial_coordinates, l_max);
+
+  {
+    // j: gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+    const auto& j_sw = get(*j);        // SpinWeighted<ComplexDataVector,2>
+    const auto& j_data = j_sw.data();  // ComplexDataVector
+
+    for (size_t i = 0; i < 20; ++i) {
+      const auto& val = j_data[i];  // std::complex<double>
+      // print proc id (optional), index, real and imag parts
+      Parallel::printf("proc %d: j[%zu] = (% .14e, % .14e)\n", sys::my_proc(),
+                       i, val.real(), val.imag());
+    }
+  }
+
+  {
+    // cartesian_cauchy_coordinates: gsl::not_null<tnsr::i<DataVector, 3> *>
+    const auto& x = get<0>(*cartesian_cauchy_coordinates);
+    const auto& y = get<1>(*cartesian_cauchy_coordinates);
+    const auto& z = get<2>(*cartesian_cauchy_coordinates);
+
+    for (size_t i = 0; i < 20; ++i) {
+      Parallel::printf(
+          "proc %d: cartesian_cauchy_coordinates[%zu] = (% .14e, % .14e, % "
+          ".14e)\n",
+          sys::my_proc(), i, x[i], y[i], z[i]);
+    }
+  }
+
+  {
+    // cartesian_cauchy_coordinates: gsl::not_null<tnsr::i<DataVector, 3> *>
+    const auto& x = get<0>(*cartesian_inertial_coordinates);
+    const auto& y = get<1>(*cartesian_inertial_coordinates);
+    const auto& z = get<2>(*cartesian_inertial_coordinates);
+
+    for (size_t i = 0; i < 20; ++i) {
+      Parallel::printf(
+          "proc %d: cartesian_inertial_coordinates[%zu] = (% .14e, % .14e, % "
+          ".14e)\n",
+          sys::my_proc(), i, x[i], y[i], z[i]);
+    }
+  }
 }
 
 void InverseCubic<false>::operator()(
