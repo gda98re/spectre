@@ -117,6 +117,15 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Spectral.Tags",
   CHECK(TestHelpers::test_option_tag<OptionTags::LMax>("8") == 8_st);
   CHECK(TestHelpers::test_option_tag<OptionTags::NumberOfRadialPoints>("3") ==
         3_st);
+  // Test that LMax has a lower bound of 2 to support spin-weighted spherical
+  // harmonics with |spin| = 2, which are common in CCE (e.g., News has
+  // spin-weight -2)
+  CHECK_THROWS_WITH(
+      (TestHelpers::test_option_tag<OptionTags::LMax>("1")),
+      Catch::Matchers::ContainsSubstring("Value 1 is below the lower bound"));
+  CHECK_THROWS_WITH(
+      (TestHelpers::test_option_tag<OptionTags::LMax>("0")),
+      Catch::Matchers::ContainsSubstring("Value 0 is below the lower bound"));
 }
 }  // namespace
 }  // namespace Spectral::Swsh::Tags

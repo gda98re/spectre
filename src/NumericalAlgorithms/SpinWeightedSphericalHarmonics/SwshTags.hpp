@@ -34,6 +34,8 @@ struct LMax {
   static constexpr Options::String help{
       "Maximum l value for spin-weighted spherical harmonics"};
   using group = Cce::OptionTags::Cce;
+  static constexpr size_t lower_bound() { return 2; }
+  static constexpr size_t suggested_value() { return 8; }
 };
 struct NumberOfRadialPoints {
   using type = size_t;
