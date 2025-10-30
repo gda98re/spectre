@@ -131,6 +131,8 @@ Cce:
   EndTime: 0.8
   ExtractionRadius: 30.0
 
+  AnalyticBoundaryDataFilePrefix: Auto
+
   AnalyticSolution:
     BouncingBlackHole:
       Period: 40.0

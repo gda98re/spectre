@@ -69,6 +69,8 @@ Cce:
   EndTime: 0.5
   ExtractionRadius: 40.0
 
+  AnalyticBoundaryDataFilePrefix: Auto
+
   AnalyticSolution:
     RobinsonTrautman:
       InitialModes:

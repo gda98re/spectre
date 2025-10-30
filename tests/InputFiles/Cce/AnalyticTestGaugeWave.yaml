@@ -69,6 +69,8 @@ Cce:
   EndTime: 4.0
   ExtractionRadius: 40.0
 
+  AnalyticBoundaryDataFilePrefix: Auto
+
   AnalyticSolution:
     GaugeWave:
       ExtractionRadius: 40.0

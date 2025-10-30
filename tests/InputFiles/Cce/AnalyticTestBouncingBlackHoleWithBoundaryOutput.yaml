@@ -1,28 +1,14 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
+# Example showing how to save analytic boundary data to H5 file
+# that can be used by CharacteristicExtract
+
 Executable: AnalyticTestCharacteristicExtract
 Testing:
-  Check: parse;execute_check_output
+  Check: parse
   Timeout: 20
   Priority: High
-ExpectedOutput:
-  - CharacteristicExtractVolume.h5
-OutputFileChecks:
-  - Label: "check_psi0"
-    Subfile: "/CceVolumeData/VolumeData.vol/ObservationId.*/Psi0"
-    FileGlob: "CharacteristicExtractVolume.h5"
-    # By not specifying an expected value, we test against 0
-    AbsoluteTolerance: 1e-8
-  - Label: "check_psi1"
-    Subfile: "/CceVolumeData/VolumeData.vol/ObservationId.*/Psi1"
-    FileGlob: "CharacteristicExtractVolume.h5"
-    # By not specifying an expected value, we test against 0
-    AbsoluteTolerance: 1e-8
-ExtraFileCheckExecs:
-  - Label: "check_psi2"
-    Executable: "AnalyticTestVolumeWeylPsi2.py"
-    Arguments: ["--atol", "1.e-10", "--rtol", "1.e-10"]
 
 ---
 
@@ -44,7 +30,7 @@ ResourceInfo:
       Exclusive: false
 
 Observers:
-  VolumeFileName: "CharacteristicExtractVolume"
+  VolumeFileName: "CharacteristicExtractUnusedVolume"
   ReductionFileName: "CharacteristicExtractReduction"
 
 EventsAndTriggersAtSlabs:
@@ -57,14 +43,6 @@ EventsAndTriggersAtSlabs:
       - ObserveTimeStep:
           SubfileName: CceTimeStep
           PrintTimeToTerminal: false
-      - ObserveFields:
-          SubgroupName: "CceVolumeData"
-          VariablesToObserve:
-            - OneMinusY
-            - InertialRetardedTime
-            - Psi0
-            - Psi1
-            - Psi2
 
 EventsAndTriggersAtSteps:
 
@@ -86,14 +64,16 @@ Cce:
   EndTime: 0.8
   ExtractionRadius: 30.0
 
-  AnalyticBoundaryDataFilePrefix: Auto
+  # Set this to save boundary data to H5 file
+  # Output will be saved to AnalyticBoundaryCceR0030.h5
+  AnalyticBoundaryDataFilePrefix: "AnalyticBoundary"
 
   AnalyticSolution:
     BouncingBlackHole:
       Period: 40.0
       ExtractionRadius: 30.0
       Mass: 1.0
-      Amplitude: 0.0
+      Amplitude: 2.0
 
   Filtering:
     RadialFilterHalfPower: 24

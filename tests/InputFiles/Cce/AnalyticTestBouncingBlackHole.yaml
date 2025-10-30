@@ -69,6 +69,10 @@ Cce:
   EndTime: 0.8
   ExtractionRadius: 30.0
 
+  # Optional: Set this to save analytic boundary data to H5 file for later use
+  # AnalyticBoundaryDataFilePrefix: "BoundaryData"
+  AnalyticBoundaryDataFilePrefix: Auto
+
   AnalyticSolution:
     BouncingBlackHole:
       Period: 40.0

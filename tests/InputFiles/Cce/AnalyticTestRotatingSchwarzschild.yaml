@@ -69,6 +69,8 @@ Cce:
   EndTime: 2.4
   ExtractionRadius: 20.0
 
+  AnalyticBoundaryDataFilePrefix: Auto
+
   AnalyticSolution:
     RotatingSchwarzschild:
       ExtractionRadius: 20.0

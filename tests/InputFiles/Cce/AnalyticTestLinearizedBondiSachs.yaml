@@ -69,6 +69,8 @@ Cce:
   EndTime: 5.0
   ExtractionRadius: 40.0
 
+  AnalyticBoundaryDataFilePrefix: Auto
+
   AnalyticSolution:
     LinearizedBondiSachs:
       ExtractionRadius: 40.0
