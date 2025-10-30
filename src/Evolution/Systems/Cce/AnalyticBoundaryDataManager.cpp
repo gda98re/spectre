@@ -3,6 +3,7 @@
 
 #include "Evolution/Systems/Cce/AnalyticBoundaryDataManager.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <iomanip>
 #include <utility>
@@ -27,7 +28,7 @@ AnalyticBoundaryDataManager::AnalyticBoundaryDataManager(
     const std::string filename = MakeString{}
                                  << output_file_prefix.value() << "CceR"
                                  << std::setw(4) << std::setfill('0')
-                                 << static_cast<int>(extraction_radius_)
+                                 << std::lround(extraction_radius_)
                                  << ".h5";
     worldtube_mode_recorder_ =
         std::make_unique<WorldtubeModeRecorder>(l_max_, filename);
@@ -71,8 +72,11 @@ void AnalyticBoundaryDataManager::pup(PUP::er& p) {
   p | l_max_;
   p | extraction_radius_;
   p | generator_;
-  // Note: WorldtubeModeRecorder is not serialized as it contains H5 file
-  // handles that cannot be serialized. It will be reconstructed as needed.
+  // Note: WorldtubeModeRecorder is not serialized because it contains H5 file
+  // handles that cannot be serialized. After deserialization, the recorder
+  // will be disabled and boundary data will not be written to file.
+  // If boundary data output is needed after restart, the simulation must be
+  // restarted from the original input file.
   if (p.isUnpacking()) {
     worldtube_mode_recorder_ = std::nullopt;
   }
