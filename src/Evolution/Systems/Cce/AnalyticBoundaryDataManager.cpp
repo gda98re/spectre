@@ -9,7 +9,10 @@
 
 #include "DataStructures/SpinWeighted.hpp"
 #include "Evolution/Systems/Cce/AnalyticSolutions/WorldtubeData.hpp"
+#include "Evolution/Systems/Cce/Tags.hpp"
+#include "Utilities/Gsl.hpp"
 #include "Utilities/MakeString.hpp"
+#include "Utilities/TMPL.hpp"
 
 namespace Cce {
 AnalyticBoundaryDataManager::AnalyticBoundaryDataManager(
