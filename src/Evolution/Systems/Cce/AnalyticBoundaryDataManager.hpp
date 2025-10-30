@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "Evolution/Systems/Cce/SpecBoundaryData.hpp"
 #include "Evolution/Systems/Cce/Tags.hpp"
 #include "Evolution/Systems/Cce/WorldtubeDataManager.hpp"
+#include "Evolution/Systems/Cce/WorldtubeModeRecorder.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "IO/Observer/ObserverComponent.hpp"
 #include "IO/Observer/ReductionActions.hpp"
@@ -44,7 +46,8 @@ class AnalyticBoundaryDataManager {
 
   AnalyticBoundaryDataManager(
       size_t l_max, double extraction_radius,
-      std::unique_ptr<Solutions::WorldtubeData> generator);
+      std::unique_ptr<Solutions::WorldtubeData> generator,
+      std::optional<std::string> output_file_prefix = std::nullopt);
 
   /*!
    * \brief Update the `boundary_data_variables` entries for all tags in
@@ -54,7 +57,9 @@ class AnalyticBoundaryDataManager {
    * \details This class retrieves metric boundary data from the
    * `Cce::Solutions::WorldtubeData` derived class that represents an analytic
    * solution, then dispatches to `Cce::create_bondi_boundary_data()` to
-   * construct the Bondi values into the provided `Variables`
+   * construct the Bondi values into the provided `Variables`. If a
+   * `WorldtubeModeRecorder` is present, the boundary data is also written to
+   * the output H5 file.
    */
   bool populate_hypersurface_boundary_data(
       gsl::not_null<Variables<
@@ -80,6 +85,7 @@ class AnalyticBoundaryDataManager {
   size_t l_max_ = 0;
   std::unique_ptr<Solutions::WorldtubeData> generator_;
   double extraction_radius_ = std::numeric_limits<double>::signaling_NaN();
+  std::optional<std::unique_ptr<WorldtubeModeRecorder>> worldtube_mode_recorder_;
 };
 
 template <typename ParallelComponent, typename Metavariables>

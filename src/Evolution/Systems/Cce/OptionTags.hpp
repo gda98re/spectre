@@ -66,6 +66,17 @@ struct BondiSachsOutputFilePrefix {
   using group = Cce;
 };
 
+struct AnalyticBoundaryDataFilePrefix {
+  using type = Options::Auto<std::string>;
+  static constexpr Options::String help{
+      "Optional filename prefix for saving analytic boundary data to H5 file. "
+      "Files will have this prefix prepended to 'CceRXXXX.h5' where XXXX will "
+      "be the zero-padded extraction radius to the nearest integer. If set to "
+      "'Auto', no boundary data will be saved."};
+  static type suggested_value() { return {}; }
+  using group = Cce;
+};
+
 struct FilterLMax {
   using type = size_t;
   static constexpr Options::String help{"l mode cutoff for angular filtering"};
@@ -527,16 +538,18 @@ struct AnalyticInitializeJ : InitializeJ<false> {
 /// A tag that constructs a `AnalyticBoundaryDataManager` from options
 struct AnalyticBoundaryDataManager : db::SimpleTag {
   using type = ::Cce::AnalyticBoundaryDataManager;
-  using option_tags =
-      tmpl::list<OptionTags::ExtractionRadius, Spectral::Swsh::OptionTags::LMax,
-                 OptionTags::AnalyticSolution>;
+  using option_tags = tmpl::list<
+      OptionTags::ExtractionRadius, Spectral::Swsh::OptionTags::LMax,
+      OptionTags::AnalyticSolution, OptionTags::AnalyticBoundaryDataFilePrefix>;
 
   static constexpr bool pass_metavariables = false;
   static Cce::AnalyticBoundaryDataManager create_from_options(
       const double extraction_radius, const size_t l_max,
-      const std::unique_ptr<Cce::Solutions::WorldtubeData>& worldtube_data) {
+      const std::unique_ptr<Cce::Solutions::WorldtubeData>& worldtube_data,
+      const std::optional<std::string>& output_file_prefix) {
     return ::Cce::AnalyticBoundaryDataManager(l_max, extraction_radius,
-                                              worldtube_data->get_clone());
+                                              worldtube_data->get_clone(),
+                                              output_file_prefix);
   }
 };
 
