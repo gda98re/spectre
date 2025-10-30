@@ -139,13 +139,9 @@ struct CharacteristicEvolution {
           tmpl::list<
               ::Actions::MutateApply<GaugeUpdateTimeDerivatives>,
               tmpl::conditional_t<
-                  tt::is_a_v<AnalyticWorldtubeBoundary,
-                             typename Metavariables::cce_boundary_component>,
-                  tmpl::list<>,
-                  tmpl::conditional_t<evolve_ccm,
-                                      ::Actions::MutateApply<
-                                          GaugeUpdateInertialTimeDerivatives>,
-                                      tmpl::list<>>>,
+                  evolve_ccm,
+                  ::Actions::MutateApply<GaugeUpdateInertialTimeDerivatives>,
+                  tmpl::list<>>,
               ::Actions::MutateApply<
                   GaugeAdjustedBoundaryValue<Tags::DuRDividedByR>>,
               ::Actions::MutateApply<PrecomputeCceDependencies<
@@ -179,10 +175,7 @@ struct CharacteristicEvolution {
       // iterations immediately following restarts
       Actions::InitializeFirstHypersurface<
           evolve_ccm, typename Metavariables::cce_boundary_component>,
-      tmpl::conditional_t<
-          tt::is_a_v<AnalyticWorldtubeBoundary,
-                     typename Metavariables::cce_boundary_component>,
-          Actions::UpdateGauge<false>, Actions::UpdateGauge<evolve_ccm>>,
+      Actions::UpdateGauge<evolve_ccm>,
       Actions::PrecomputeGlobalCceDependencies,
       tmpl::conditional_t<evolve_ccm,
                           Actions::CalculatePsi0AndDerivAtInnerBoundary,
@@ -210,10 +203,7 @@ struct CharacteristicEvolution {
           typename Metavariables::cce_boundary_communication_tags>,
       Actions::InitializeFirstHypersurface<
           evolve_ccm, typename Metavariables::cce_boundary_component>,
-      tmpl::conditional_t<
-          tt::is_a_v<AnalyticWorldtubeBoundary,
-                     typename Metavariables::cce_boundary_component>,
-          Actions::UpdateGauge<false>, Actions::UpdateGauge<evolve_ccm>>,
+      Actions::UpdateGauge<evolve_ccm>,
       Actions::PrecomputeGlobalCceDependencies,
       tmpl::conditional_t<evolve_ccm,
                           Actions::CalculatePsi0AndDerivAtInnerBoundary,

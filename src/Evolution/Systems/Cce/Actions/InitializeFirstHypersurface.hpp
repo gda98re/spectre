@@ -76,9 +76,10 @@ struct InitializeFirstHypersurface {
                              observers::Actions::GetLockPointer<
                                  observers::Tags::H5FileLock>>();
     if constexpr (tt::is_a_v<AnalyticWorldtubeBoundary, BoundaryComponent>) {
-      db::mutate_apply<typename InitializeJ::InitializeJ<true>::mutate_tags,
-                       typename InitializeJ::InitializeJ<true>::argument_tags>(
-          db::get<Tags::InitializeJ<true>>(box), make_not_null(&box),
+      db::mutate_apply<
+          typename InitializeJ::InitializeJ<EvolveCcm>::mutate_tags,
+          typename InitializeJ::InitializeJ<EvolveCcm>::argument_tags>(
+          db::get<Tags::InitializeJ<EvolveCcm>>(box), make_not_null(&box),
           make_not_null(hdf5_lock));
     } else {
       db::mutate_apply<
