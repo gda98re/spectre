@@ -8,6 +8,7 @@
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
+#include "Evolution/Systems/Cce/Initialize/CauchyInverseCubic.hpp"
 #include "Evolution/Systems/Cce/Initialize/InitializeJ.hpp"
 #include "Evolution/Systems/Cce/Initialize/InverseCubic.hpp"
 #include "Evolution/Systems/Cce/Tags.hpp"
@@ -127,7 +128,7 @@ struct WorldtubeData : public PUP::able {
 
   virtual std::unique_ptr<Cce::InitializeJ::InitializeJ<false>>
   get_initialize_j(const double /*start_time*/) const {
-    return std::make_unique<Cce::InitializeJ::InverseCubic<false>>();
+    return std::make_unique<Cce::InitializeJ::CauchyInverseCubic>();
   };
 
   virtual bool use_noninertial_news() const { return false; }

@@ -314,6 +314,7 @@ struct NoIncomingRadiation;
 struct ZeroNonSmooth;
 template <bool evolve_ccm>
 struct InverseCubic;
+struct CauchyInverseCubic;
 template <bool evolve_ccm>
 struct InitializeJ;
 struct ConformalFactor;
@@ -411,7 +412,8 @@ struct InitializeJ<false> : public PUP::able {
 
   using creatable_classes =
       tmpl::list<ConformalFactor, InverseCubic<false>, NoIncomingRadiation,
-                 ZeroNonSmooth, ReadJFromFile, AngularGauge>;
+                 ZeroNonSmooth, ReadJFromFile, AngularGauge,
+                 CauchyInverseCubic>;
 
   InitializeJ() = default;
   explicit InitializeJ(CkMigrateMessage* /*msg*/) {}
@@ -437,6 +439,7 @@ struct InitializeJ<false> : public PUP::able {
 }  // namespace Cce
 
 #include "Evolution/Systems/Cce/Initialize/AngularGauge.hpp"
+#include "Evolution/Systems/Cce/Initialize/CauchyInverseCubic.hpp"
 #include "Evolution/Systems/Cce/Initialize/InverseCubic.hpp"
 #include "Evolution/Systems/Cce/Initialize/NoIncomingRadiation.hpp"
 #include "Evolution/Systems/Cce/Initialize/ReadJFromFile.hpp"

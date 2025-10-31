@@ -11,6 +11,7 @@ spectre_target_sources(
   ZeroNonSmooth.cpp
   ReadJFromFile.cpp
   AngularGauge.cpp
+  CauchyInverseCubic.cpp
   )
 
 spectre_target_headers(
@@ -25,4 +26,5 @@ spectre_target_headers(
   ZeroNonSmooth.hpp
   ReadJFromFile.hpp
   AngularGauge.hpp
+  CauchyInverseCubic.hpp
   )
