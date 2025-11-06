@@ -8,6 +8,7 @@
 #include "Evolution/Systems/Cce/Actions/InitializeKleinGordonFirstHypersurface.hpp"
 #include "Evolution/Systems/Cce/Actions/InitializeKleinGordonVariables.hpp"
 #include "Evolution/Systems/Cce/Actions/PrecomputeKleinGordonSourceVariables.hpp"
+#include "Evolution/Systems/Cce/Actions/SubtractBondiJTermsFromBondiH.hpp"
 #include "Evolution/Systems/Cce/Components/CharacteristicEvolution.hpp"
 #include "Evolution/Systems/Cce/KleinGordonSource.hpp"
 #include "Evolution/Systems/Cce/KleinGordonSystem.hpp"
@@ -108,6 +109,7 @@ struct KleinGordonCharacteristicEvolution
       tmpl::transform<bondi_hypersurface_step_tags,
                       tmpl::bind<hypersurface_computation, tmpl::_1>>,
       klein_gordon_hypersurface_computation,
+      Actions::SubtractBondiJTermsFromBondiH,
       Actions::FilterSwshVolumeQuantity<Tags::BondiH>,
       Actions::FilterSwshVolumeQuantity<Tags::KleinGordonPi>,
       ::Actions::MutateApply<
@@ -152,6 +154,7 @@ struct KleinGordonCharacteristicEvolution
       tmpl::transform<bondi_hypersurface_step_tags,
                       tmpl::bind<hypersurface_computation, tmpl::_1>>,
       klein_gordon_hypersurface_computation,
+      Actions::SubtractBondiJTermsFromBondiH,
       Actions::FilterSwshVolumeQuantity<Tags::BondiH>,
       Actions::FilterSwshVolumeQuantity<Tags::KleinGordonPi>,
       compute_scri_quantities_and_observe,

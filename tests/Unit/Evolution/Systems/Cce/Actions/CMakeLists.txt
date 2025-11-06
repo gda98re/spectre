@@ -24,6 +24,7 @@ set(LIBRARY_SOURCES
   Test_RequestKleinGordonBoundaryData.cpp
   Test_SendGhVarsToCce.cpp
   Test_ScriObserveInterpolated.cpp
+  Test_SubtractBondiJTermsFromBondiH.cpp
   Test_TimeManagement.cpp
   Test_UpdateGauge.cpp
   Test_WriteScriBondiQuantities.cpp

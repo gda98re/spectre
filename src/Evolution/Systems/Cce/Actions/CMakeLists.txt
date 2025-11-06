@@ -30,6 +30,7 @@ spectre_target_headers(
   RequestBoundaryData.hpp
   ScriObserveInterpolated.hpp
   SendGhVarsToCce.hpp
+  SubtractBondiJTermsFromBondiH.hpp
   TimeManagement.hpp
   UpdateGauge.hpp
   WriteScriBondiQuantities.hpp
