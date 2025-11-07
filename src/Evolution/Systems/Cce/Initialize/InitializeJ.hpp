@@ -315,8 +315,9 @@ struct ZeroNonSmooth;
 template <bool evolve_ccm>
 struct InverseCubic;
 template <bool evolve_ccm>
-struct InitializeJ;
 struct ConformalFactor;
+template <bool evolve_ccm>
+struct InitializeJ;
 struct ReadJFromFile;
 struct AngularGauge;
 /// \endcond
@@ -354,7 +355,8 @@ struct InitializeJ<true> : public PUP::able {
 
   // The evolution of inertial coordinates are allowed only when InverseCubic is
   // used
-  using creatable_classes = tmpl::list<InverseCubic<true>>;
+  using creatable_classes =
+      tmpl::list<InverseCubic<true>, ConformalFactor<true>>;
 
   InitializeJ() = default;
   explicit InitializeJ(CkMigrateMessage* /*msg*/) {}
@@ -410,8 +412,9 @@ struct InitializeJ<false> : public PUP::able {
       tmpl::push_back<boundary_tags, Tags::LMax, Tags::NumberOfRadialPoints>;
 
   using creatable_classes =
-      tmpl::list<ConformalFactor, InverseCubic<false>, NoIncomingRadiation,
-                 ZeroNonSmooth, ReadJFromFile, AngularGauge>;
+      tmpl::list<ConformalFactor<false>, InverseCubic<false>,
+                 NoIncomingRadiation, ZeroNonSmooth, ReadJFromFile,
+                 AngularGauge>;
 
   InitializeJ() = default;
   explicit InitializeJ(CkMigrateMessage* /*msg*/) {}
@@ -433,6 +436,7 @@ struct InitializeJ<false> : public PUP::able {
       size_t number_of_radial_points,
       gsl::not_null<Parallel::NodeLock*> hdf5_lock) const = 0;
 };
+
 }  // namespace InitializeJ
 }  // namespace Cce
 

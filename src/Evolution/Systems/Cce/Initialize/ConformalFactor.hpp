@@ -20,12 +20,12 @@
 class ComplexDataVector;
 /// \endcond
 
-namespace Cce {
+namespace Cce {  // NOLINT
 namespace InitializeJ {
 
 /// Possible iteration heuristics to use for optimizing the value of the
 /// conformal factor \f$\omega\f$ to fix the initial data.
-enum class ConformalFactorIterationHeuristic {
+enum class ConformalFactorIterationHeuristic {  // NOLINT
   /// Assumes that the spin-weighted Jacobian perturbations obey
   /// \f$c = \hat \eth f\f$,\f$d = \hat{\bar\eth} f\f$, for some spin-weight-1
   /// value\f$f\f$.
@@ -71,7 +71,8 @@ enum class ConformalFactorIterationHeuristic {
  * are chosen to match the boundary value of \f$J\f$ and \f$\partial_r J\f$ on
  * the worldtube boundary in the new coordinates.
  */
-struct ConformalFactor : InitializeJ<false> {
+template <>
+struct ConformalFactor<false> : InitializeJ<false> {
   struct AngularCoordinateTolerance {
     using type = double;
     static std::string name() { return "AngularCoordTolerance"; }
@@ -152,7 +153,7 @@ struct ConformalFactor : InitializeJ<false> {
       "based on the value of the CCE scalar beta in an attempt to make the "
       "time variable approximately asymptotically inertial"};
 
-  WRAPPED_PUPable_decl_template(ConformalFactor);  // NOLINT
+  WRAPPED_PUPable_decl_template(ConformalFactor);
   explicit ConformalFactor(CkMigrateMessage* msg);
 
   ConformalFactor() = default;
@@ -178,6 +179,140 @@ struct ConformalFactor : InitializeJ<false> {
       gsl::not_null<
           tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
           angular_cauchy_coordinates,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta, size_t l_max,
+      size_t number_of_radial_points,
+      gsl::not_null<Parallel::NodeLock*> hdf5_lock) const override;
+
+  void pup(PUP::er& p) override;
+
+ private:
+  double angular_coordinate_tolerance_ = 1.0e-13;
+  size_t max_iterations_ = 1000;
+  bool require_convergence_ = false;
+  bool optimize_l_0_mode_ = false;
+  bool use_beta_integral_estimate_ = false;
+  ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic_ =
+      ::Cce::InitializeJ::ConformalFactorIterationHeuristic::OnlyVaryGaugeD;
+  bool use_input_modes_ = false;
+  std::vector<std::complex<double>> input_modes_;
+  std::optional<std::string> input_mode_filename_;
+};
+
+template <>
+struct ConformalFactor<true> : InitializeJ<true> {
+  struct AngularCoordinateTolerance {
+    using type = double;
+    static std::string name() { return "AngularCoordTolerance"; }
+    static constexpr Options::String help = {
+        "Tolerance of initial angular coordinates for CCE"};
+    static type lower_bound() { return 1.0e-14; }
+    static type upper_bound() { return 1.0e-3; }
+  };
+  struct MaxIterations {
+    using type = size_t;
+    static constexpr Options::String help = {
+        "Number of linearized inversion iterations."};
+    static type lower_bound() { return 10; }
+    static type upper_bound() { return 1000; }
+    static type suggested_value() { return 300; }
+  };
+  struct RequireConvergence {
+    using type = bool;
+    static constexpr Options::String help = {
+        "If true, initialization will error if it hits MaxIterations"};
+    static type suggested_value() { return true; }
+  };
+  struct OptimizeL0Mode {
+    using type = bool;
+    static constexpr Options::String help = {
+        "If true, the average value of the conformal factor will be included "
+        "during optimization; otherwise it will be omitted (filtered)."};
+    static type suggested_value() { return false; }
+  };
+  struct UseBetaIntegralEstimate {
+    using type = bool;
+    static constexpr Options::String help = {
+        "If true, the iterative algorithm will calculate an estimate of the "
+        "asymptotic beta value using the 1/r part of the initial J."};
+    static type suggested_value() { return true; }
+  };
+  struct ConformalFactorIterationHeuristic {
+    using type = ::Cce::InitializeJ::ConformalFactorIterationHeuristic;
+    static constexpr Options::String help = {
+        "The heuristic method used to set the spin-weighted Jacobian factors "
+        "when iterating to minimize the asymptotic conformal factor."};
+    static type suggested_value() {
+      return ::Cce::InitializeJ::ConformalFactorIterationHeuristic::
+          SpinWeight1CoordPerturbation;
+    }
+  };
+  struct UseInputModes {
+    using type = bool;
+    static constexpr Options::String help = {
+        "If true, the 1/r part of J will be set using modes read from the "
+        "input file, or from a specified h5 file. If false, the inverse cubic "
+        "scheme will determine the 1/r part of J."};
+  };
+  struct InputModesFromFile {
+    using type = std::string;
+    static constexpr Options::String help = {
+        "A filename from which to retrieve a set of modes (from InitialJ.dat) "
+        "to use to determine the 1/r part of J on the initial hypersurface. "
+        "The modes are parsed in l-ascending, m-ascending, m-varies-fastest, "
+        "real then imaginary part order."};
+  };
+  struct InputModes {
+    using type = std::vector<std::complex<double>>;
+    static constexpr Options::String help = {
+        "An explicit list of modes to use to set the 1/r part of J on the "
+        "initial hypersurface. They are parsed in l-ascending, m-ascending, "
+        "m-varies-fastest order."};
+  };
+
+  using options =
+      tmpl::list<AngularCoordinateTolerance, MaxIterations, RequireConvergence,
+                 OptimizeL0Mode, UseBetaIntegralEstimate,
+                 ConformalFactorIterationHeuristic, UseInputModes,
+                 Options::Alternatives<tmpl::list<InputModesFromFile>,
+                                       tmpl::list<InputModes>>>;
+  static constexpr Options::String help = {
+      "Generate CCE initial data based on choosing an angular conformal factor "
+      "based on the value of the CCE scalar beta in an attempt to make the "
+      "time variable approximately asymptotically inertial"};
+
+  WRAPPED_PUPable_decl_template(ConformalFactor);
+  explicit ConformalFactor(CkMigrateMessage* msg);
+
+  ConformalFactor() = default;
+  ConformalFactor(
+      double angular_coordinate_tolerance, size_t max_iterations,
+      bool require_convergence, bool optimize_l_0_mode,
+      bool use_beta_integral_estimate,
+      ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic,
+      bool use_input_modes, std::string input_mode_filename);
+
+  ConformalFactor(
+      double angular_coordinate_tolerance, size_t max_iterations,
+      bool require_convergence, bool optimize_l_0_mode,
+      bool use_beta_integral_estimate,
+      ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic,
+      bool use_input_modes, std::vector<std::complex<double>> input_modes);
+
+  std::unique_ptr<InitializeJ> get_clone() const override;
+
+  void operator()(
+      gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+      gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+      gsl::not_null<
+          tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+          angular_cauchy_coordinates,
+      gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+      gsl::not_null<
+          tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+          angular_inertial_coordinates,
       const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
       const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
       const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
