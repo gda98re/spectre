@@ -18,7 +18,7 @@
 class ComplexDataVector;
 /// \endcond
 
-namespace Cce {
+namespace Cce {  // NOLINT
 namespace InitializeJ {
 
 /*!
@@ -45,6 +45,12 @@ struct CauchyInverseCubic : InitializeJ<false> {
         "The subfile name inside the H5 file for BondiJCauchy"};
   };
 
+  struct SubfileNameCoord {
+    using type = std::string;
+    static constexpr Options::String help = {
+        "The subfile name inside the H5 file for CauchyCartesianCoordinates"};
+  };
+
   struct StartTime {
     using type = double;
     static constexpr Options::String help = {
@@ -55,6 +61,13 @@ struct CauchyInverseCubic : InitializeJ<false> {
     using type = bool;
     static constexpr Options::String help = {
         "If true, J in Cauchy coordinates is read from the volume h5 file"};
+    static type suggested_value() { return true; }
+  };
+
+  struct GetCoordFromFile {
+    using type = bool;
+    static constexpr Options::String help = {
+        "If true, Cauchy coordinates are read from the volume h5 file"};
     static type suggested_value() { return true; }
   };
 
@@ -85,8 +98,9 @@ struct CauchyInverseCubic : InitializeJ<false> {
   };
 
   using options =
-      tmpl::list<H5Filename, SubfileNameJ, StartTime, GetJFromFile,
-                 AngularCoordinateTolerance, MaxIterations, RequireConvergence>;
+      tmpl::list<H5Filename, SubfileNameJ, SubfileNameCoord, StartTime,
+                 GetJFromFile, GetCoordFromFile, AngularCoordinateTolerance,
+                 MaxIterations, RequireConvergence>;
   static constexpr Options::String help = {
       "Cauchy Inverse Cubcic initial data generator for CCE."};
 
@@ -94,9 +108,11 @@ struct CauchyInverseCubic : InitializeJ<false> {
   explicit CauchyInverseCubic(CkMigrateMessage* /*unused*/) {}
 
   CauchyInverseCubic(std::string input_filename,
-                     std::string input_subfile_name_j, double start_time,
-                     bool get_j_from_file, double angular_coordinate_tolerance,
-                     size_t max_iterations, bool require_convergence);
+                     std::string input_subfile_name_j,
+                     std::string input_subfile_name_coord, double start_time,
+                     bool get_j_from_file, bool get_coord_from_file,
+                     double angular_coordinate_tolerance, size_t max_iterations,
+                     bool require_convergence);
 
   CauchyInverseCubic() = default;
 
@@ -122,11 +138,13 @@ struct CauchyInverseCubic : InitializeJ<false> {
       "/home/fs01/spec1187/CCE_initial_data/Tests/InputFilesIC/"
       "CharacteristicExtractVolumeTeukolskyWaveCcm.h5";
   std::string input_subfile_name_j_ = "CceVolumeData/VolumeData";
-  double start_time_ = 0.0;
-  bool get_j_from_file_ = false;
+  std::string input_subfile_name_coord_ = "CceVolumeData/CauchyCartesianCoords";
+  double start_time_ = 21.0;
+  bool get_j_from_file_ = true;
+  bool get_coord_from_file_ = true;
   bool require_convergence_ = true;
-  double angular_coordinate_tolerance_ = 1.0e-13;
-  size_t max_iterations_ = 1000;
+  double angular_coordinate_tolerance_ = 1.0e-14;
+  size_t max_iterations_ = 2000;
 };
 }  // namespace InitializeJ
 }  // namespace Cce
