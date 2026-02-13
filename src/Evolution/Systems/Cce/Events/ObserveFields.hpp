@@ -212,8 +212,10 @@ class ObserveFields : public Event {
                  Tags::EthRDividedByR,
                  Tags::DuRDividedByR,
                  Tags::BondiJCauchyView,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>,
                  Tags::Dy<Tags::BondiJCauchyView>,
                  Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>;
+
   // clang-format on
 
  public:
@@ -282,6 +284,7 @@ class ObserveFields : public Event {
       Tags::DyCompute<Tags::NewmanPenrosePi>,
       Tags::DyCompute<Tags::NewmanPenroseMu>, Tags::DyCompute<Tags::Psi0>,
       Tags::DyCompute<Tags::Psi1>, Tags::DyCompute<Tags::Psi2>,
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>,
       Tags::NewmanPenroseDCompute<Tags::Psi1>,
       Tags::NewmanPenroseDeltaBarCompute<Tags::Psi0>,
       Tags::NewmanPenroseDCompute<Tags::Psi2>,
