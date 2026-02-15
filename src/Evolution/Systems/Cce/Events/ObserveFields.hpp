@@ -213,7 +213,9 @@ class ObserveFields : public Event {
                  Tags::DuRDividedByR,
                  Tags::BondiJCauchyView,
                  Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>,
                  Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>,
                  Tags::Dy<Tags::BondiJCauchyView>,
                  Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>;
 
@@ -286,6 +288,8 @@ class ObserveFields : public Event {
       Tags::DyCompute<Tags::NewmanPenroseMu>, Tags::DyCompute<Tags::Psi0>,
       Tags::DyCompute<Tags::Psi1>, Tags::DyCompute<Tags::Psi2>,
       Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>,
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>,
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>,
       Tags::NewmanPenroseDCompute<Tags::Psi1>,
       Tags::NewmanPenroseDeltaBarCompute<Tags::Psi0>,
       Tags::NewmanPenroseDCompute<Tags::Psi2>,
