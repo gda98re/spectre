@@ -212,6 +212,7 @@ class ObserveFields : public Event {
                  Tags::EthRDividedByR,
                  Tags::DuRDividedByR,
                  Tags::BondiJCauchyView,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
                  Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>,
                  Tags::Dy<Tags::BondiJCauchyView>,
                  Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>;
