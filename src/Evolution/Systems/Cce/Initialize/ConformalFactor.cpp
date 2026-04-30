@@ -277,10 +277,11 @@ void ConformalFactor::operator()(
     target_omega.data() /= l_0_mode_of_target_omega;
     target_omega.data() *=
         sqrt(4 * M_PI);  // The integral of omega over the sphere is 4pi
-    Parallel::printf("Target omega renormalized by l=0 mode: %e\n",
+    Parallel::printf("target omega integral / 4pi: %e\n",
                      Spectral::Swsh::swsh_transform(l_max, 1_st, target_omega)
-                         .data()[0]
-                         .real());
+                             .data()[0]
+                             .real() /
+                         sqrt(4 * M_PI));
   }
 
   void (*iteration_heuristic_function)(
