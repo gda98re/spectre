@@ -108,6 +108,13 @@ struct ConformalFactor : InitializeJ<false> {
         "asymptotic beta value using the 1/r part of the initial J."};
     static type suggested_value() { return true; }
   };
+  struct NormalizeTargetOmega {
+    using type = bool;
+    static constexpr Options::String help = {
+        "If true, the target conformal factor is rescaled to integrate to "
+        "4pi."};
+    static type suggested_value() { return false; }
+  };
   struct ConformalFactorIterationHeuristic {
     using type = ::Cce::InitializeJ::ConformalFactorIterationHeuristic;
     static constexpr Options::String help = {
@@ -143,7 +150,7 @@ struct ConformalFactor : InitializeJ<false> {
 
   using options =
       tmpl::list<AngularCoordinateTolerance, MaxIterations, RequireConvergence,
-                 OptimizeL0Mode, UseBetaIntegralEstimate,
+                 OptimizeL0Mode, UseBetaIntegralEstimate, NormalizeTargetOmega,
                  ConformalFactorIterationHeuristic, UseInputModes,
                  Options::Alternatives<tmpl::list<InputModesFromFile>,
                                        tmpl::list<InputModes>>>;
@@ -159,14 +166,14 @@ struct ConformalFactor : InitializeJ<false> {
   ConformalFactor(
       double angular_coordinate_tolerance, size_t max_iterations,
       bool require_convergence, bool optimize_l_0_mode,
-      bool use_beta_integral_estimate,
+      bool use_beta_integral_estimate, bool normalize_target_omega,
       ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic,
       bool use_input_modes, std::string input_mode_filename);
 
   ConformalFactor(
       double angular_coordinate_tolerance, size_t max_iterations,
       bool require_convergence, bool optimize_l_0_mode,
-      bool use_beta_integral_estimate,
+      bool use_beta_integral_estimate, bool normalize_target_omega,
       ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic,
       bool use_input_modes, std::vector<std::complex<double>> input_modes);
 
@@ -193,6 +200,7 @@ struct ConformalFactor : InitializeJ<false> {
   bool require_convergence_ = true;
   bool optimize_l_0_mode_ = false;
   bool use_beta_integral_estimate_ = true;
+  bool normalize_target_omega_ = false;
   ::Cce::InitializeJ::ConformalFactorIterationHeuristic iteration_heuristic_ =
       ::Cce::InitializeJ::ConformalFactorIterationHeuristic::
           SpinWeight1CoordPerturbation;

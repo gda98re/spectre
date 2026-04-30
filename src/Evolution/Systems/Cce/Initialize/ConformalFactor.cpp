@@ -3,6 +3,7 @@
 
 #include "Evolution/Systems/Cce/Initialize/ConformalFactor.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <mutex>
@@ -88,8 +89,7 @@ void only_vary_gauge_d_heuristic(
     const SpinWeighted<ComplexDataVector, 0>& omega_filtered,
     const SpinWeighted<ComplexDataVector, 0>& target_omega,
     const SpinWeighted<ComplexDataVector, 2>& /*gauge_c*/,
-    const SpinWeighted<ComplexDataVector, 0>& gauge_d,
-    const size_t /*l_max*/) {
+    const SpinWeighted<ComplexDataVector, 0>& gauge_d, const size_t /*l_max*/) {
   // The alteration in each of the spin-weighted Jacobian factors determined
   // by linearizing the system in small \Delta \omega
   gauge_d_step->data() = full_omega.data() *
@@ -105,7 +105,7 @@ ConformalFactor::ConformalFactor(CkMigrateMessage* msg)
 ConformalFactor::ConformalFactor(
     const double angular_coordinate_tolerance, const size_t max_iterations,
     const bool require_convergence, const bool optimize_l_0_mode,
-    const bool use_beta_integral_estimate,
+    const bool use_beta_integral_estimate, const bool normalize_target_omega,
     const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
         iteration_heuristic,
     const bool use_input_modes, std::string input_mode_filename)
@@ -114,6 +114,7 @@ ConformalFactor::ConformalFactor(
       require_convergence_{require_convergence},
       optimize_l_0_mode_{optimize_l_0_mode},
       use_beta_integral_estimate_{use_beta_integral_estimate},
+      normalize_target_omega_(normalize_target_omega),
       iteration_heuristic_{iteration_heuristic},
       use_input_modes_{use_input_modes},
       input_mode_filename_{std::move(input_mode_filename)} {}
@@ -121,16 +122,16 @@ ConformalFactor::ConformalFactor(
 ConformalFactor::ConformalFactor(
     const double angular_coordinate_tolerance, const size_t max_iterations,
     const bool require_convergence, const bool optimize_l_0_mode,
-    const bool use_beta_integral_estimate,
+    const bool use_beta_integral_estimate, const bool normalize_target_omega,
     const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
         iteration_heuristic,
-    const bool use_input_modes,
-    std::vector<std::complex<double>> input_modes)
+    const bool use_input_modes, std::vector<std::complex<double>> input_modes)
     : angular_coordinate_tolerance_{angular_coordinate_tolerance},
       max_iterations_{max_iterations},
       require_convergence_{require_convergence},
       optimize_l_0_mode_{optimize_l_0_mode},
       use_beta_integral_estimate_{use_beta_integral_estimate},
+      normalize_target_omega_(normalize_target_omega),
       iteration_heuristic_{iteration_heuristic},
       use_input_modes_{use_input_modes},
       input_modes_{std::move(input_modes)} {}
@@ -263,6 +264,23 @@ void ConformalFactor::operator()(
     target_omega.data() /= pow(1.0 + 4.0 * get(surface_j_buffer).data() *
                                          conj(get(surface_j_buffer).data()),
                                0.125);
+  }
+
+  if (normalize_target_omega_) {
+    // normalize the target omega by its l=0 mode to ensure the iteration is
+    // well-scaled. This doesn't change the solution, but can help with
+    // convergence.
+    double l_0_mode_of_target_omega =
+        Spectral::Swsh::swsh_transform(l_max, 1_st, target_omega)
+            .data()[0]
+            .real();
+    target_omega.data() /= l_0_mode_of_target_omega;
+    target_omega.data() *=
+        sqrt(4 * M_PI);  // The integral of omega over the sphere is 4pi
+    Parallel::printf("Target omega renormalized by l=0 mode: %e\n",
+                     Spectral::Swsh::swsh_transform(l_max, 1_st, target_omega)
+                         .data()[0]
+                         .real());
   }
 
   void (*iteration_heuristic_function)(
@@ -411,6 +429,7 @@ void ConformalFactor::pup(PUP::er& p) {
   p | require_convergence_;
   p | optimize_l_0_mode_;
   p | use_beta_integral_estimate_;
+  p | normalize_target_omega_;
   p | iteration_heuristic_;
   p | use_input_modes_;
   p | input_modes_;
