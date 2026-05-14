@@ -1,0 +1,27 @@
+# Distributed under the MIT License.
+# See LICENSE.txt for details.
+#
+# Example input file for AnalyticWorldtubeWriter.
+#
+# Run:
+#   AnalyticWorldtubeWriter --input-file ExampleTeukolskyWave.yaml
+#
+# Produces:
+#   AnalyticBondiCceR0100.h5
+# in the current directory, containing the Bondi-Sachs boundary values of a
+# TeukolskyWave pulse evaluated on a worldtube of radius 100 over the time
+# window [50, 250] in increments of 0.5. The h5 layout matches the BBH
+# worldtube format so it can be fed directly to CharacteristicExtract.
+
+AnalyticSolution:
+  TeukolskyWave:
+    ExtractionRadius: 100.0
+    Amplitude: 1.0e-3
+    Duration: 30.0
+
+LMax: 16
+ExtractionRadius: 100.0
+StartTime: 50.0
+EndTime: 250.0
+TimeStep: 0.5
+OutputH5File: AnalyticBondiCceR0100.h5
