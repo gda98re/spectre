@@ -55,6 +55,12 @@ std::string dataset_label_for_tag<Cce::Tags::Du<Cce::Tags::BondiJ>>() {
 }
 
 template <>
+std::string
+dataset_label_for_tag<Cce::Tags::Du<Cce::Tags::Dy<Cce::Tags::BondiJ>>>() {
+  return "DuDyJ";
+}
+
+template <>
 std::string dataset_label_for_tag<Cce::Tags::BondiR>() {
   return "R";
 }
