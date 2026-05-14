@@ -102,6 +102,52 @@ void GaugeAdjustedBoundaryValue<Tags::Dr<Tags::BondiJ>>::apply(
       pow<3>(get(omega).data());
 }
 
+void GaugeAdjustedBoundaryValue<Tags::Dr<Tags::Dr<Tags::BondiJ>>>::apply(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+        evolution_gauge_dr_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& cauchy_gauge_dr_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& cauchy_gauge_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& cauchy_gauge_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& omega,
+    const Spectral::Swsh::SwshInterpolator& interpolator, const size_t l_max) {
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+
+  // Interpolate the Cauchy-gauge values to the new angular coordinates.
+  interpolator.interpolate(make_not_null(&get(*evolution_gauge_dr_dr_j)),
+                           get(cauchy_gauge_dr_dr_j));
+  SpinWeighted<ComplexDataVector, 2> interpolated_dr_j{
+      number_of_angular_points};
+  interpolator.interpolate(make_not_null(&interpolated_dr_j),
+                           get(cauchy_gauge_dr_j));
+  SpinWeighted<ComplexDataVector, 2> interpolated_j{number_of_angular_points};
+  interpolator.interpolate(make_not_null(&interpolated_j), get(cauchy_gauge_j));
+
+  const ComplexDataVector k_view =
+      sqrt(1.0 + interpolated_j.data() * conj(interpolated_j.data()));
+  // dr(J * conj(J)) = dr_J * conj(J) + J * conj(dr_J)
+  const ComplexDataVector dr_j_jbar =
+      interpolated_dr_j.data() * conj(interpolated_j.data()) +
+      interpolated_j.data() * conj(interpolated_dr_j.data());
+
+  get(*evolution_gauge_dr_dr_j).data() =
+      (0.25 * square(conj(get(gauge_d).data())) *
+           get(*evolution_gauge_dr_dr_j).data() +
+       0.25 * square(get(gauge_c).data()) *
+           conj(get(*evolution_gauge_dr_dr_j).data()) +
+       0.25 * get(gauge_c).data() * conj(get(gauge_d).data()) *
+           (get(*evolution_gauge_dr_dr_j).data() * conj(interpolated_j.data()) +
+            conj(get(*evolution_gauge_dr_dr_j).data()) * interpolated_j.data() +
+            2.0 * interpolated_dr_j.data() *
+                conj(interpolated_dr_j.data())) /
+           k_view -
+       0.125 * get(gauge_c).data() * conj(get(gauge_d).data()) *
+           dr_j_jbar * dr_j_jbar / pow<3>(k_view)) /
+      pow<4>(get(omega).data());
+}
+
 void GaugeAdjustedBoundaryValue<Tags::BondiBeta>::apply(
     const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
         evolution_gauge_beta,

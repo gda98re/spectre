@@ -183,6 +183,56 @@ struct GaugeAdjustedBoundaryValue<Tags::Dr<Tags::BondiJ>> {
 };
 
 /*!
+ * \brief Computes the evolution gauge quantity \f$\partial_{\hat r}^2 \hat J\f$
+ * on the worldtube.
+ *
+ * \details Obtained by differentiating the expression for
+ * \f$\partial_{\hat r} \hat J\f$ (see
+ * `GaugeAdjustedBoundaryValue<Tags::Dr<Tags::BondiJ>>`) once more with respect
+ * to \f$\hat r\f$, using \f$\partial_{\hat r} = \partial_r / \hat \omega\f$
+ * (with \f$\hat \omega\f$ independent of \f$r\f$):
+ *
+ * \f{align*}{
+ * \partial_{\hat r}^2 \hat J =
+ *   \frac{1}{4 \hat \omega^4} \Bigg[
+ *     \bar{\hat d}^2 \, \partial_r^2 J(\hat x^{\hat A})
+ *     + \hat c^2 \, \partial_r^2 \bar J(\hat x^{\hat A})
+ *     + \frac{\hat c \bar{\hat d}}{K} \big( \partial_r^2 J \, \bar J
+ *         + 2 |\partial_r J|^2 + J \, \partial_r^2 \bar J \big)
+ *     - \frac{\hat c \bar{\hat d}}{2 K^3}
+ *         \big( \partial_r J \, \bar J + J \, \partial_r \bar J \big)^2
+ *   \Bigg],
+ * \f}
+ *
+ * where the right-hand-side fields with explicit \f$\hat x^{\hat A}\f$
+ * dependence must be interpolated to the new angular coordinates and
+ * \f$K = \sqrt{1 + J \bar J}\f$.
+ */
+template <>
+struct GaugeAdjustedBoundaryValue<Tags::Dr<Tags::Dr<Tags::BondiJ>>> {
+  using return_tags = tmpl::list<
+      Tags::EvolutionGaugeBoundaryValue<Tags::Dr<Tags::Dr<Tags::BondiJ>>>>;
+  using argument_tags = tmpl::list<
+      Tags::BoundaryValue<Tags::Dr<Tags::Dr<Tags::BondiJ>>>,
+      Tags::BoundaryValue<Tags::Dr<Tags::BondiJ>>,
+      Tags::BoundaryValue<Tags::BondiJ>, Tags::PartiallyFlatGaugeC,
+      Tags::PartiallyFlatGaugeD, Tags::PartiallyFlatGaugeOmega,
+      Spectral::Swsh::Tags::SwshInterpolator<Tags::CauchyAngularCoords>,
+      Tags::LMax>;
+
+  static void apply(
+      gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+          evolution_gauge_dr_dr_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& cauchy_gauge_dr_dr_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& cauchy_gauge_dr_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& cauchy_gauge_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& omega,
+      const Spectral::Swsh::SwshInterpolator& interpolator, size_t l_max);
+};
+
+/*!
  * \brief Computes the evolution gauge quantity \f$\hat \beta\f$ on the
  * worldtube
  *

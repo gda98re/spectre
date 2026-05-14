@@ -7,6 +7,7 @@ spectre_target_sources(
   CauchySecondOrder.cpp
   ComputeSecondOrderRadialDerivativeJ.cpp
   ConformalFactor.cpp
+  ConformalFactorSecondOrder.cpp
   InitializeJ.cpp
   InverseCubic.cpp
   NoIncomingRadiation.cpp
@@ -20,6 +21,8 @@ spectre_target_headers(
   CauchySecondOrder.hpp
   ComputeSecondOrderRadialDerivativeJ.hpp
   ConformalFactor.hpp
+  ConformalFactorIterationHeuristic.hpp
+  ConformalFactorSecondOrder.hpp
   InitializeJ.hpp
   InverseCubic.hpp
   NoIncomingRadiation.hpp
