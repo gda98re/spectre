@@ -49,9 +49,9 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& w_scalar,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta_scalar,
     const Scalar<SpinWeighted<ComplexDataVector, 1>>& q_scalar,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& h_scalar,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& dr_j_scalar,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& du_dy_j_scalar,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& dy_j_scalar,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& h_numerical_scalar,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& dy_h_numerical_scalar,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& du_r_scalar,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& r_scalar,
     const size_t l_max) {
@@ -89,13 +89,10 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
   auto du_r_divided_by_r = buffer<0>(n);
   get(du_r_divided_by_r) = du_r / r;
 
-  // numerical-coordinate worldtube quantities at y = -1:
-  //   dy_j = (R/2) dr_j,  hbreve = H + (du R) dr_j.
-  auto dy_j_scalar = buffer<2>(n);
-  get(dy_j_scalar) = 0.5 * r * get(dr_j_scalar);
+  // `dy_j`, `h_numerical` and `dy_h_numerical` are supplied directly in the
+  // numerical (constant y) coordinate; the conversion from the physical
+  // worldtube data is performed by the caller (`compute_dy_dy_j`).
   const auto& dy_j = get(dy_j_scalar);
-  auto hbreve = buffer<2>(n);
-  get(hbreve) = get(h_scalar) + du_r * get(dr_j_scalar);
 
   // y-independent products and the y-independent (dy^2 J-free) parts that the
   // H equation needs as operands.
@@ -360,9 +357,10 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
   auto residual = buffer<2>(n);
   get(residual).data() =
       get(pole_h).data() + 2.0 * get(regular_h).data() -
-      (2.0 * get(du_dy_j_scalar).data() +
-       get(linear_factor).data() * get(hbreve).data() +
-       get(linear_factor_conjugate).data() * conj(get(hbreve).data()));
+      (2.0 * get(dy_h_numerical_scalar).data() +
+       get(linear_factor).data() * get(h_numerical_scalar).data() +
+       get(linear_factor_conjugate).data() *
+           conj(get(h_numerical_scalar).data()));
   return residual;
 }
 
@@ -380,19 +378,28 @@ void compute_dy_dy_j(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& r_scalar,
     const size_t l_max) {
   const size_t n = Spectral::Swsh::number_of_swsh_collocation_points(l_max);
-  // Convert the worldtube time derivative of the radial derivative,
-  // Du<Dr<J>>, to the numerical-coordinate time derivative Du<Dy<J>> with the
+  // Convert the physical worldtube data to the numerical (constant y)
+  // coordinate that `evaluate_worldtube_h_residual` works in, using the
   // worldtube Jacobian dy_j = (R / 2) Dr<J>:
-  //   Du<Dy<J>> = (1 / 2) (Du<R> Dr<J> + R Du<Dr<J>>).
-  Scalar<SpinWeighted<ComplexDataVector, 2>> du_dy_j_scalar{n};
-  get(du_dy_j_scalar).data() =
+  //   dy_j           = (R / 2) Dr<J>,
+  //   h_numerical    = H + Du<R> Dr<J>            (= Du<J> at constant y),
+  //   dy_h_numerical = (1 / 2) (Du<R> Dr<J> + R Du<Dr<J>>)
+  //                                               (= Dy of h_numerical).
+  Scalar<SpinWeighted<ComplexDataVector, 2>> dy_j_scalar{n};
+  get(dy_j_scalar).data() =
+      0.5 * get(r_scalar).data() * get(dr_j_scalar).data();
+  Scalar<SpinWeighted<ComplexDataVector, 2>> h_numerical_scalar{n};
+  get(h_numerical_scalar).data() =
+      get(h_scalar).data() + get(du_r_scalar).data() * get(dr_j_scalar).data();
+  Scalar<SpinWeighted<ComplexDataVector, 2>> dy_h_numerical_scalar{n};
+  get(dy_h_numerical_scalar).data() =
       0.5 * (get(du_r_scalar).data() * get(dr_j_scalar).data() +
              get(r_scalar).data() * get(du_dr_j_scalar).data());
   const auto residual = [&](const ComplexDataVector& dy_dy_j_value) {
     return get(evaluate_worldtube_h_residual(
                    dy_dy_j_value, j_scalar, u_scalar, w_scalar, beta_scalar,
-                   q_scalar, h_scalar, dr_j_scalar, du_dy_j_scalar, du_r_scalar,
-                   r_scalar, l_max))
+                   q_scalar, dy_j_scalar, h_numerical_scalar,
+                   dy_h_numerical_scalar, du_r_scalar, r_scalar, l_max))
         .data();
   };
 

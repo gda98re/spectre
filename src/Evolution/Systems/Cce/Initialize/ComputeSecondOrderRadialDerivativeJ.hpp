@@ -45,19 +45,22 @@ namespace Cce::InitializeJ::CauchySecondOrder_detail {
  * coefficients \f$c_1\f$, \f$c_2\f$ exactly; no closed-form expressions for
  * the coefficients are needed.
  *
- * The time derivative of \f$J\f$ enters through the worldtube radial-derivative
- * time derivative `du_dr_j` (\f$\partial_u \partial_r J\f$ at constant angle),
- * which is converted internally to the numerical-coordinate time derivative
- * \f$\partial_u \partial_y J\f$ with the worldtube Jacobian
+ * The caller supplies the physical worldtube data; `compute_dy_dy_j` converts
+ * it to the numerical (constant \f$y\f$) coordinate that
+ * `evaluate_worldtube_h_residual` works in, using the worldtube Jacobian
  * \f$\partial_y J = (R / 2) \partial_r J\f$,
  *
- * \f[
- *   \partial_u \partial_y J
- *     = \tfrac{1}{2}\left(\partial_u R \, \partial_r J
- *                         + R \, \partial_u \partial_r J\right),
- * \f]
+ * \f{align*}{
+ *   \partial_y J &= \tfrac{1}{2} R \, \partial_r J, \\
+ *   \breve{H} &= H + \partial_u R \, \partial_r J, \\
+ *   \partial_y \breve{H} &= \tfrac{1}{2}\left(\partial_u R \, \partial_r J
+ *                          + R \, \partial_u \partial_r J\right),
+ * \f}
  *
- * so the caller supplies only the primitive radial-derivative quantity.
+ * where \f$\breve{H} = \partial_u J|_y\f$ is the numerical-coordinate \f$H\f$
+ * and \f$\partial_y \breve{H} = \partial_u \partial_y J\f$. The time derivative
+ * enters only through the primitive radial quantity
+ * `du_dr_j` \f$= \partial_u \partial_r J\f$.
  *
  * \see evaluate_worldtube_h_residual for the function \f$F\f$ that is probed.
  */
@@ -87,7 +90,11 @@ void compute_dy_dy_j(
  *
  * evaluated with the supplied trial value `dy_dy_j_value` for
  * \f$\partial_y^2 J\f$ (with \f$\partial_y^2 \bar J\f$ taken to be its complex
- * conjugate). Every angular derivative is converted from the numerical to the
+ * conjugate). All worldtube inputs are supplied in the numerical (constant
+ * \f$y\f$) coordinate: `dy_j` \f$= \partial_y J\f$, `h_numerical`
+ * \f$= \breve{H} = \partial_u J|_y\f$, and `dy_h_numerical`
+ * \f$= \partial_y \breve{H}\f$; no physical radial-derivative quantity is
+ * passed. Every angular derivative is converted from the numerical to the
  * physical coordinate with `Cce::ApplySwshJacobianInplace`, and every
  * hypersurface right-hand side comes from the `Cce::ComputeBondiIntegrand`
  * specializations, so the residual is assembled entirely from the same volume
@@ -102,9 +109,9 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& w,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta,
     const Scalar<SpinWeighted<ComplexDataVector, 1>>& q,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& h,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& dr_j,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& du_dy_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& dy_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& h_numerical,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& dy_h_numerical,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& du_r,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& r, size_t l_max);
 

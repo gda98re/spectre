@@ -93,14 +93,20 @@ void test_h_equation_is_satisfied(const size_t l_max) {
                                      l_max);
   get(r).data() = 5.0 + real(get(r).data());
 
-  // `compute_dy_dy_j` takes the primitive Du<Dr<J>> and converts it internally
-  // to Du<Dy<J>> with the worldtube Jacobian dy_j = (R / 2) Dr<J>:
-  //   Du<Dy<J>> = (1 / 2) (Du<R> Dr<J> + R Du<Dr<J>>).
-  // We reproduce that conversion here to drive `evaluate_worldtube_h_residual`,
-  // whose signature still takes Du<Dy<J>> directly.
-  Scalar<SpinWeighted<ComplexDataVector, 2>> du_dy_j{number_of_points};
-  get(du_dy_j).data() = 0.5 * (get(du_r).data() * get(dr_j).data() +
-                               get(r).data() * get(du_dr_j).data());
+  // `compute_dy_dy_j` takes the physical worldtube data and converts it to the
+  // numerical (constant y) coordinate internally. We reproduce that conversion
+  // here to drive `evaluate_worldtube_h_residual`, which works purely in the
+  // numerical coordinate:
+  //   dy_j           = (R / 2) Dr<J>,
+  //   h_numerical    = H + Du<R> Dr<J>,
+  //   dy_h_numerical = (1 / 2) (Du<R> Dr<J> + R Du<Dr<J>>).
+  Scalar<SpinWeighted<ComplexDataVector, 2>> dy_j{number_of_points};
+  get(dy_j).data() = 0.5 * get(r).data() * get(dr_j).data();
+  Scalar<SpinWeighted<ComplexDataVector, 2>> h_numerical{number_of_points};
+  get(h_numerical).data() = get(h).data() + get(du_r).data() * get(dr_j).data();
+  Scalar<SpinWeighted<ComplexDataVector, 2>> dy_h_numerical{number_of_points};
+  get(dy_h_numerical).data() = 0.5 * (get(du_r).data() * get(dr_j).data() +
+                                      get(r).data() * get(du_dr_j).data());
 
   Scalar<SpinWeighted<ComplexDataVector, 2>> dy_dy_j{number_of_points};
   compute_dy_dy_j(make_not_null(&dy_dy_j), j, u, w, beta, q, h, dr_j, du_dr_j,
@@ -109,14 +115,16 @@ void test_h_equation_is_satisfied(const size_t l_max) {
   // The natural scale of the H equation is the size of its source term, the
   // residual evaluated with dy^2 J set to zero.
   const auto residual_without_dy_dy_j = evaluate_worldtube_h_residual(
-      zero_dy_dy_j, j, u, w, beta, q, h, dr_j, du_dy_j, du_r, r, l_max);
+      zero_dy_dy_j, j, u, w, beta, q, dy_j, h_numerical, dy_h_numerical, du_r,
+      r, l_max);
   double scale = 0.0;
   for (const auto entry : get(residual_without_dy_dy_j).data()) {
     scale = std::max(scale, std::abs(entry));
   }
 
   const auto residual_at_solution = evaluate_worldtube_h_residual(
-      get(dy_dy_j).data(), j, u, w, beta, q, h, dr_j, du_dy_j, du_r, r, l_max);
+      get(dy_dy_j).data(), j, u, w, beta, q, dy_j, h_numerical, dy_h_numerical,
+      du_r, r, l_max);
   const Approx h_equation_approx =
       Approx::custom().epsilon(1.0e-10).scale(scale);
   CHECK_ITERABLE_CUSTOM_APPROX(get(residual_at_solution).data(), zero_dy_dy_j,
@@ -132,8 +140,9 @@ void test_h_equation_is_satisfied(const size_t l_max) {
       make_not_null(&generator), make_not_null(&coefficient_distribution),
       l_max);
   const auto evaluate = [&](const ComplexDataVector& trial) {
-    return get(evaluate_worldtube_h_residual(trial, j, u, w, beta, q, h, dr_j,
-                                             du_dy_j, du_r, r, l_max))
+    return get(evaluate_worldtube_h_residual(trial, j, u, w, beta, q, dy_j,
+                                             h_numerical, dy_h_numerical, du_r,
+                                             r, l_max))
         .data();
   };
   const ComplexDataVector residual_of_sum =
