@@ -199,12 +199,9 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
       l_max, 1, make_not_null(&get(eth_beta)), get(beta_scalar));
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_beta), one_minus_y,
                                     eth_r_divided_by_r, dy_beta);
-  auto eth_dy_beta_numerical = buffer<1>(n);
-  Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
-      l_max, 1, make_not_null(&get(eth_dy_beta_numerical)),
-      get(dy_beta_scalar));
   auto eth_dy_beta = buffer<1>(n);
-  get(eth_dy_beta) = get(eth_dy_beta_numerical);
+  Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
+      l_max, 1, make_not_null(&get(eth_dy_beta)), get(dy_beta_scalar));
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_dy_beta), one_minus_y,
                                     eth_r_divided_by_r, dy_dy_beta);
   auto eth_eth_beta = buffer<2>(n);
@@ -300,10 +297,16 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
     Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
         l_max, 1, make_not_null(&get(ethbar_jbar_eth_beta)),
         conj(j) * get(eth_beta));
+    // The operand here is dy(Jbar eth beta), where eth beta is the physical
+    // (constant r) angular derivative. Since dy does not commute with the
+    // physical eth, dy(eth beta) = eth(dy beta) + (eth R / R) dy beta picks up
+    // the worldtube-radius gradient term, which matters for an angle-dependent
+    // worldtube radius.
     Jacobian<-1, SwshTags::Ethbar>::apply(
         make_not_null(&ethbar_jbar_eth_beta), one_minus_y, eth_r_divided_by_r,
         conj(dy_j.data()) * get(eth_beta).data() +
-            conj(j.data()) * get(eth_dy_beta_numerical).data());
+            conj(j.data()) * (get(eth_dy_beta).data() +
+                              get(eth_r_divided_by_r).data() * dy_beta));
     get(ethbar_jbar_q_minus_2_eth_beta) =
         get(ethbar_jbar_q) - 2.0 * get(ethbar_jbar_eth_beta);
   }
