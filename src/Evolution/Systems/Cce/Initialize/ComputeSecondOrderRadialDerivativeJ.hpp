@@ -42,8 +42,7 @@ namespace Cce::InitializeJ::CauchySecondOrder_detail {
  * \f$\partial_y^2 J\f$ threaded through every dependence. Because \f$F\f$ is
  * affine in \f$(\partial_y^2 J, \partial_y^2 \bar J)\f$, evaluating it at
  * \f$\partial_y^2 J = 0, 1, i\f$ fixes \f$c_3 = F(0)\f$ and the linear
- * coefficients \f$c_1\f$, \f$c_2\f$ exactly; no closed-form expressions for
- * the coefficients are needed.
+ * coefficients \f$c_1\f$, \f$c_2\f$ exactly.
  *
  * The caller supplies the physical worldtube data; `compute_dy_dy_j` converts
  * it to the numerical (constant \f$y\f$) coordinate that
@@ -54,13 +53,27 @@ namespace Cce::InitializeJ::CauchySecondOrder_detail {
  *   \partial_y J &= \tfrac{1}{2} R \, \partial_r J, \\
  *   \breve{H} &= H + \partial_u R \, \partial_r J, \\
  *   \partial_y \breve{H} &= \tfrac{1}{2}\left(\partial_u R \, \partial_r J
- *                          + R \, \partial_u \partial_r J\right),
+ *                          + R \, \partial_{\breve u} \partial_r J\right),
  * \f}
  *
- * where \f$\breve{H} = \partial_u J|_y\f$ is the numerical-coordinate \f$H\f$
- * and \f$\partial_y \breve{H} = \partial_u \partial_y J\f$. The time derivative
+ * where \f$\breve{H} = \partial_{\breve u} J = (\partial_u J)_y\f$ is the
+ * numerical-coordinate \f$H\f$. The time derivative
  * enters only through the primitive radial quantity
- * `du_dr_j` \f$= \partial_u \partial_r J\f$.
+ * `du_dr_j` \f$= \partial_{\breve u} \partial_r J\f$.
+ *
+ * \note The coordinate held fixed by a time derivative is written two
+ * equivalent ways: a breve accent marks "at constant numerical coordinate
+ * \f$y\f$" (following the worldtube), while an unaccented symbol means "at
+ * constant Bondi \f$r\f$"; `BoundaryData.hpp` writes the same distinction with
+ * an explicit \f$(\,\cdot\,)_y\f$ / \f$(\,\cdot\,)_r\f$ subscript. So, for
+ * \f$H\f$,
+ * - \f$\breve{H} = (\partial_u J)_y\f$ (constant \f$y\f$, "numerical")
+ *   \f$\;\leftrightarrow\;\f$ `Cce::Tags::BondiH` (`= ::Tags::dt<BondiJ>`),
+ * - \f$H = (\partial_u J)_r\f$ (constant Bondi \f$r\f$)
+ *   \f$\;\leftrightarrow\;\f$ `Cce::Tags::Du<BondiJ>`.
+ *
+ * The tag \f$\breve{H}\f$ drops the accent because the evolution only ever uses
+ * the constant-\f$y\f$ \f$H\f$, so there is nothing to distinguish it from.
  *
  * \see evaluate_worldtube_h_residual for the function \f$F\f$ that is probed.
  */
@@ -92,7 +105,7 @@ void compute_dy_dy_j(
  * \f$\partial_y^2 J\f$ (with \f$\partial_y^2 \bar J\f$ taken to be its complex
  * conjugate). All worldtube inputs are supplied in the numerical (constant
  * \f$y\f$) coordinate: `dy_j` \f$= \partial_y J\f$, `h_numerical`
- * \f$= \breve{H} = \partial_u J|_y\f$, and `dy_h_numerical`
+ * \f$= \breve{H} = (\partial_u J)_y\f$, and `dy_h_numerical`
  * \f$= \partial_y \breve{H}\f$; no physical radial-derivative quantity is
  * passed. Every angular derivative is converted from the numerical to the
  * physical coordinate with `Cce::ApplySwshJacobianInplace`, and every
