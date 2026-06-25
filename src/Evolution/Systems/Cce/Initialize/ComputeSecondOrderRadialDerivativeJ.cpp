@@ -9,6 +9,7 @@
 #include "DataStructures/SpinWeighted.hpp"
 #include "DataStructures/Tags.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
+#include "DataStructures/Variables.hpp"
 #include "Evolution/Systems/Cce/Equations.hpp"
 #include "Evolution/Systems/Cce/SwshDerivatives.hpp"
 #include "Evolution/Systems/Cce/Tags.hpp"
@@ -17,7 +18,7 @@
 #include "NumericalAlgorithms/SpinWeightedSphericalHarmonics/SwshTags.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/Gsl.hpp"
-#include "Utilities/MakeWithValue.hpp"
+#include "Utilities/TMPL.hpp"
 
 namespace Cce::InitializeJ::CauchySecondOrder_detail {
 
@@ -34,12 +35,28 @@ template <int Spin, typename Kind>
 using Jacobian = ApplySwshJacobianInplace<
     SwshTags::Derivative<::Tags::TempSpinWeightedScalar<0, Spin>, Kind>>;
 
-template <int Spin>
-Scalar<SpinWeighted<ComplexDataVector, Spin>> buffer(
-    const size_t number_of_angular_points) {
-  return make_with_value<Scalar<SpinWeighted<ComplexDataVector, Spin>>>(
-      number_of_angular_points, 0.0);
-}
+// Every angular temporary of `evaluate_worldtube_h_residual` lives in a single
+// `Variables` so that the whole computation performs one allocation instead of
+// one per temporary. `Temp<Index, Spin>` names the slots; the raw
+// `ComplexDataVector` products are stored in spin-0 slots and accessed through
+// `.data()`.
+template <size_t Index, int Spin>
+using Temp = ::Tags::TempSpinWeightedScalar<Index, Spin>;
+
+using BufferTags =
+    tmpl::list<Temp<0, 0>, Temp<1, 1>, Temp<2, 0>, Temp<3, 2>, Temp<4, 0>,
+               Temp<5, 0>, Temp<6, 0>, Temp<7, 0>, Temp<8, 1>, Temp<9, 1>,
+               Temp<10, 1>, Temp<11, 1>, Temp<12, -1>, Temp<13, 3>, Temp<14, 2>,
+               Temp<15, 0>, Temp<16, 1>, Temp<17, 0>, Temp<18, 1>, Temp<19, 1>,
+               Temp<20, 2>, Temp<21, 0>, Temp<22, 1>, Temp<23, 1>, Temp<24, 1>,
+               Temp<25, 1>, Temp<26, 2>, Temp<27, 0>, Temp<28, 1>, Temp<29, 0>,
+               Temp<30, 2>, Temp<31, 0>, Temp<32, -2>, Temp<33, 2>,
+               Temp<34, -2>, Temp<35, -2>, Temp<36, -2>, Temp<37, 0>,
+               Temp<38, 0>, Temp<39, 0>, Temp<40, 0>, Temp<41, 2>, Temp<42, 2>,
+               Temp<43, 0>, Temp<44, 0>, Temp<45, 2>, Temp<46, 2>, Temp<47, 0>,
+               Temp<48, 4>, Temp<49, 2>, Temp<51, 0>, Temp<52, 0>, Temp<53, 0>,
+               Temp<54, 0>, Temp<55, 0>, Temp<56, 0>, Temp<57, 0>, Temp<58, 0>,
+               Temp<59, 0>, Temp<60, 0>, Temp<61, 0>>;
 }  // namespace
 
 Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
@@ -62,31 +79,32 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
   const auto& du_r = get(du_r_scalar);
   const auto& r = get(r_scalar);
 
+  Variables<BufferTags> buffer{n};
+
   // ---- worldtube geometry from R (all y-independent) ----------------------
   // `one_minus_y` is 2 at the worldtube; it doubles as the pointwise spin-0
   // argument named `two` expected by the `ComputeBondiIntegrand` overloads.
-  auto one_minus_y =
-      make_with_value<Scalar<SpinWeighted<ComplexDataVector, 0>>>(
-          n, std::complex<double>(2.0, 0.0));
+  auto& one_minus_y = get<Temp<0, 0>>(buffer);
+  get(one_minus_y).data() = std::complex<double>(2.0, 0.0);
   auto& two = one_minus_y;
-  auto eth_r_divided_by_r = buffer<1>(n);
+  auto& eth_r_divided_by_r = get<Temp<1, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_r_divided_by_r)), get(r_scalar));
   get(eth_r_divided_by_r) = get(eth_r_divided_by_r) / r;
-  auto eth_ethbar_r_divided_by_r = buffer<0>(n);
+  auto& eth_ethbar_r_divided_by_r = get<Temp<2, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthEthbar>>(
       l_max, 1, make_not_null(&get(eth_ethbar_r_divided_by_r)), get(r_scalar));
   get(eth_ethbar_r_divided_by_r) = get(eth_ethbar_r_divided_by_r) / r;
-  auto eth_eth_r_divided_by_r = buffer<2>(n);
+  auto& eth_eth_r_divided_by_r = get<Temp<3, 2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthEth>>(
       l_max, 1, make_not_null(&get(eth_eth_r_divided_by_r)), get(r_scalar));
   get(eth_eth_r_divided_by_r) = get(eth_eth_r_divided_by_r) / r;
 
-  auto k = buffer<0>(n);
+  auto& k = get<Temp<4, 0>>(buffer);
   get(k) = sqrt(1.0 + j * conj(j));
-  auto exp_2_beta = buffer<0>(n);
+  auto& exp_2_beta = get<Temp<5, 0>>(buffer);
   get(exp_2_beta) = exp(2.0 * get(beta_scalar));
-  auto du_r_divided_by_r = buffer<0>(n);
+  auto& du_r_divided_by_r = get<Temp<6, 0>>(buffer);
   get(du_r_divided_by_r) = du_r / r;
 
   // `dy_j`, `h_numerical` and `dy_h_numerical` are supplied directly in the
@@ -96,12 +114,14 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
 
   // y-independent products and the y-independent (dy^2 J-free) parts that the
   // H equation needs as operands.
-  const ComplexDataVector dy_j_jbar =
-      dy_j.data() * conj(j.data()) + j.data() * conj(dy_j.data());
-  const ComplexDataVector dy_jbar_dy_j = conj(dy_j.data()) * dy_j.data();
-  const ComplexDataVector inverse_k_squared = 1.0 / square(get(k).data());
+  auto& dy_j_jbar = get(get<Temp<51, 0>>(buffer)).data();
+  dy_j_jbar = dy_j.data() * conj(j.data()) + j.data() * conj(dy_j.data());
+  auto& dy_jbar_dy_j = get(get<Temp<52, 0>>(buffer)).data();
+  dy_jbar_dy_j = conj(dy_j.data()) * dy_j.data();
+  auto& inverse_k_squared = get(get<Temp<53, 0>>(buffer)).data();
+  inverse_k_squared = 1.0 / square(get(k).data());
 
-  auto dy_beta_scalar = buffer<0>(n);
+  auto& dy_beta_scalar = get<Temp<7, 0>>(buffer);
   ComputeBondiIntegrand<Tags::Integrand<Tags::BondiBeta>>::apply(
       make_not_null(&dy_beta_scalar), dy_j_scalar, j_scalar, two);
   const ComplexDataVector& dy_beta = get(dy_beta_scalar).data();
@@ -110,79 +130,83 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
   //           + dy_dy_beta_conjugate_coefficient * dy^2 Jbar,
   // obtained by differentiating the beta-integrand once more in y at the
   // worldtube.
-  const ComplexDataVector dy_dy_beta_excluding =
+  auto& dy_dy_beta_excluding = get(get<Temp<54, 0>>(buffer)).data();
+  dy_dy_beta_excluding =
       -0.5 * dy_beta - dy_j_jbar * dy_beta * inverse_k_squared;
-  const ComplexDataVector dy_dy_beta_coefficient =
+  auto& dy_dy_beta_coefficient = get(get<Temp<55, 0>>(buffer)).data();
+  dy_dy_beta_coefficient =
       0.25 * (conj(dy_j.data()) -
               0.5 * dy_j_jbar * conj(j.data()) * inverse_k_squared);
-  const ComplexDataVector dy_dy_beta_conjugate_coefficient =
+  auto& dy_dy_beta_conjugate_coefficient = get(get<Temp<56, 0>>(buffer)).data();
+  dy_dy_beta_conjugate_coefficient =
       0.25 * (dy_j.data() - 0.5 * dy_j_jbar * j.data() * inverse_k_squared);
 
   // ---- residual rhs - lhs of the H equation with dy^2 J = dy_dy_j_value ----
   const ComplexDataVector& ddj = dy_dy_j_value;
-  const ComplexDataVector ddjbar = conj(ddj);
+  auto& ddjbar = get(get<Temp<57, 0>>(buffer)).data();
+  ddjbar = conj(ddj);
   // dy^2 of the relevant operands (with the dy^2 J pieces retained):
-  const ComplexDataVector dy_dy_j_jbar =
-      conj(j.data()) * ddj + 2.0 * dy_jbar_dy_j + j.data() * ddjbar;
-  const ComplexDataVector dy_dy_beta =
-      dy_dy_beta_excluding + dy_dy_beta_coefficient * ddj +
-      dy_dy_beta_conjugate_coefficient * ddjbar;
+  auto& dy_dy_j_jbar = get(get<Temp<58, 0>>(buffer)).data();
+  dy_dy_j_jbar = conj(j.data()) * ddj + 2.0 * dy_jbar_dy_j + j.data() * ddjbar;
+  auto& dy_dy_beta = get(get<Temp<59, 0>>(buffer)).data();
+  dy_dy_beta = dy_dy_beta_excluding + dy_dy_beta_coefficient * ddj +
+               dy_dy_beta_conjugate_coefficient * ddjbar;
 
   // -- angular derivatives of J (numerical -> physical) --
-  auto ethbar_j = buffer<1>(n);
+  auto& ethbar_j = get<Temp<8, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_j)), j);
   Jacobian<2, SwshTags::Ethbar>::apply(make_not_null(&ethbar_j), one_minus_y,
                                        eth_r_divided_by_r, dy_j.data());
-  auto eth_j_jbar = buffer<1>(n);
+  auto& eth_j_jbar = get<Temp<9, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_j_jbar)), j * conj(j));
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_j_jbar), one_minus_y,
                                     eth_r_divided_by_r, dy_j_jbar);
-  auto eth_jbar_dy_j = buffer<1>(n);
+  auto& eth_jbar_dy_j = get<Temp<10, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_jbar_dy_j)), conj(j) * dy_j);
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_jbar_dy_j), one_minus_y,
                                     eth_r_divided_by_r,
                                     dy_jbar_dy_j + conj(j.data()) * ddj);
-  auto ethbar_dy_j = buffer<1>(n);
+  auto& ethbar_dy_j = get<Temp<11, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_dy_j)), dy_j);
   Jacobian<2, SwshTags::Ethbar>::apply(make_not_null(&ethbar_dy_j), one_minus_y,
                                        eth_r_divided_by_r, ddj);
-  auto ethbar_jbar_dy_j = buffer<-1>(n);
+  auto& ethbar_jbar_dy_j = get<Temp<12, -1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_jbar_dy_j)), conj(j) * dy_j);
   Jacobian<0, SwshTags::Ethbar>::apply(make_not_null(&ethbar_jbar_dy_j),
                                        one_minus_y, eth_r_divided_by_r,
                                        dy_jbar_dy_j + conj(j.data()) * ddj);
   // physical eth/ethbar of dy_j feeding the second-derivative Jacobians
-  auto eth_dy_j = buffer<3>(n);
+  auto& eth_dy_j = get<Temp<13, 3>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_dy_j)), dy_j);
   Jacobian<2, SwshTags::Eth>::apply(make_not_null(&eth_dy_j), one_minus_y,
                                     eth_r_divided_by_r, ddj);
-  auto eth_ethbar_j = buffer<2>(n);
+  auto& eth_ethbar_j = get<Temp<14, 2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthEthbar>>(
       l_max, 1, make_not_null(&get(eth_ethbar_j)), j);
   Jacobian<2, SwshTags::EthEthbar>::apply(
       make_not_null(&eth_ethbar_j), one_minus_y, eth_r_divided_by_r,
       eth_ethbar_r_divided_by_r, dy_j.data(), ddj, get(eth_dy_j).data(),
       get(ethbar_dy_j).data());
-  auto ethbar_ethbar_j = buffer<0>(n);
+  auto& ethbar_ethbar_j = get<Temp<15, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthbarEthbar>>(
       l_max, 1, make_not_null(&get(ethbar_ethbar_j)), j);
   Jacobian<2, SwshTags::EthbarEthbar>::apply(
       make_not_null(&ethbar_ethbar_j), one_minus_y, eth_r_divided_by_r,
       eth_eth_r_divided_by_r, dy_j.data(), ddj, get(ethbar_dy_j).data());
   // physical eth of dy(J Jbar) feeding the EthEthbar Jacobian of J Jbar
-  auto eth_dy_j_jbar = buffer<1>(n);
+  auto& eth_dy_j_jbar = get<Temp<16, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_dy_j_jbar)),
       SpinWeighted<ComplexDataVector, 0>{dy_j_jbar});
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_dy_j_jbar), one_minus_y,
                                     eth_r_divided_by_r, dy_dy_j_jbar);
-  auto eth_ethbar_j_jbar = buffer<0>(n);
+  auto& eth_ethbar_j_jbar = get<Temp<17, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthEthbar>>(
       l_max, 1, make_not_null(&get(eth_ethbar_j_jbar)), j * conj(j));
   Jacobian<0, SwshTags::EthEthbar>::apply(
@@ -191,23 +215,23 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
       get(eth_dy_j_jbar).data(), conj(get(eth_dy_j_jbar).data()));
 
   // -- derivatives of beta --
-  auto eth_beta = buffer<1>(n);
+  auto& eth_beta = get<Temp<18, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_beta)), get(beta_scalar));
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_beta), one_minus_y,
                                     eth_r_divided_by_r, dy_beta);
-  auto eth_dy_beta = buffer<1>(n);
+  auto& eth_dy_beta = get<Temp<19, 1>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_dy_beta)), get(dy_beta_scalar));
   Jacobian<0, SwshTags::Eth>::apply(make_not_null(&eth_dy_beta), one_minus_y,
                                     eth_r_divided_by_r, dy_dy_beta);
-  auto eth_eth_beta = buffer<2>(n);
+  auto& eth_eth_beta = get<Temp<20, 2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthEth>>(
       l_max, 1, make_not_null(&get(eth_eth_beta)), get(beta_scalar));
   Jacobian<0, SwshTags::EthEth>::apply(
       make_not_null(&eth_eth_beta), one_minus_y, eth_r_divided_by_r,
       eth_eth_r_divided_by_r, dy_beta, dy_dy_beta, get(eth_dy_beta).data());
-  auto eth_ethbar_beta = buffer<0>(n);
+  auto& eth_ethbar_beta = get<Temp<21, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::EthEthbar>>(
       l_max, 1, make_not_null(&get(eth_ethbar_beta)), conj(get(beta_scalar)));
   Jacobian<0, SwshTags::EthEthbar>::apply(
@@ -216,11 +240,11 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
       conj(get(eth_dy_beta).data()));
 
   // -- derivatives of Q --
-  auto dy_q = buffer<1>(n);
+  auto& dy_q = get<Temp<22, 1>>(buffer);
   {
-    auto pole_q = buffer<1>(n);
-    auto regular_q = buffer<1>(n);
-    auto script_aq = buffer<1>(n);
+    auto& pole_q = get<Temp<23, 1>>(buffer);
+    auto& regular_q = get<Temp<24, 1>>(buffer);
+    auto& script_aq = get<Temp<25, 1>>(buffer);
     ComputeBondiIntegrand<Tags::PoleOfIntegrand<Tags::BondiQ>>::apply(
         make_not_null(&pole_q), eth_beta);
     ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiQ>>::apply(
@@ -229,68 +253,69 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
         ethbar_dy_j, ethbar_j, eth_r_divided_by_r, k);
     get(dy_q) = 0.5 * get(pole_q) + get(regular_q) - q;
   }
-  auto eth_q = buffer<2>(n);
+  auto& eth_q = get<Temp<26, 2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_q)), q);
   Jacobian<1, SwshTags::Eth>::apply(make_not_null(&eth_q), one_minus_y,
                                     eth_r_divided_by_r, get(dy_q).data());
-  auto ethbar_q = buffer<0>(n);
+  auto& ethbar_q = get<Temp<27, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_q)), q);
   Jacobian<1, SwshTags::Ethbar>::apply(make_not_null(&ethbar_q), one_minus_y,
                                        eth_r_divided_by_r, get(dy_q).data());
 
   // -- derivatives of U --
-  auto dy_u = buffer<1>(n);
+  auto& dy_u = get<Temp<28, 1>>(buffer);
   ComputeBondiIntegrand<Tags::Integrand<Tags::BondiU>>::apply(
       make_not_null(&dy_u), exp_2_beta, j_scalar, q_scalar, k, r_scalar);
-  const ComplexDataVector dy_k =
-      (dy_j.data() * conj(j.data()) + j.data() * conj(dy_j.data())) /
-      (2.0 * get(k).data());
-  const ComplexDataVector dy_dy_u =
+  auto& dy_k = get(get<Temp<60, 0>>(buffer)).data();
+  dy_k = (dy_j.data() * conj(j.data()) + j.data() * conj(dy_j.data())) /
+         (2.0 * get(k).data());
+  auto& dy_dy_u = get(get<Temp<61, 0>>(buffer)).data();
+  dy_dy_u =
       2.0 * dy_beta * get(dy_u).data() +
       get(exp_2_beta).data() *
           (get(dy_q).data() * get(k).data() + q.data() * dy_k -
            dy_j.data() * conj(q.data()) - j.data() * conj(get(dy_q).data())) /
           (2.0 * r.data());
-  auto ethbar_dy_u = buffer<0>(n);
+  auto& ethbar_dy_u = get<Temp<29, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_dy_u)), get(dy_u));
   Jacobian<1, SwshTags::Ethbar>::apply(make_not_null(&ethbar_dy_u), one_minus_y,
                                        eth_r_divided_by_r, dy_dy_u);
-  auto eth_u = buffer<2>(n);
+  auto& eth_u = get<Temp<30, 2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_u)), u);
   Jacobian<1, SwshTags::Eth>::apply(make_not_null(&eth_u), one_minus_y,
                                     eth_r_divided_by_r, get(dy_u).data());
-  auto ethbar_u = buffer<0>(n);
+  auto& ethbar_u = get<Temp<31, 0>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_u)), u);
   Jacobian<1, SwshTags::Ethbar>::apply(make_not_null(&ethbar_u), one_minus_y,
                                        eth_r_divided_by_r, get(dy_u).data());
 
   // -- extra product derivatives --
-  auto ethbar_jbar_u = buffer<-2>(n);
+  auto& ethbar_jbar_u = get<Temp<32, -2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
       l_max, 1, make_not_null(&get(ethbar_jbar_u)), conj(j) * u);
   Jacobian<-1, SwshTags::Ethbar>::apply(
       make_not_null(&ethbar_jbar_u), one_minus_y, eth_r_divided_by_r,
       conj(j.data()) * get(dy_u).data() + u.data() * conj(dy_j.data()));
-  auto eth_ubar_dy_j = buffer<2>(n);
+  auto& eth_ubar_dy_j = get<Temp<33, 2>>(buffer);
   Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Eth>>(
       l_max, 1, make_not_null(&get(eth_ubar_dy_j)), conj(u) * dy_j);
   Jacobian<1, SwshTags::Eth>::apply(
       make_not_null(&eth_ubar_dy_j), one_minus_y, eth_r_divided_by_r,
       conj(get(dy_u).data()) * dy_j.data() + conj(u.data()) * ddj);
-  auto ethbar_jbar_q_minus_2_eth_beta = buffer<-2>(n);
+  auto& ethbar_jbar_q_minus_2_eth_beta = get<Temp<34, -2>>(buffer);
   {
-    auto ethbar_jbar_q = buffer<-2>(n);
+    auto& ethbar_jbar_q = get<Temp<35, -2>>(buffer);
     Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
         l_max, 1, make_not_null(&get(ethbar_jbar_q)), conj(j) * q);
     Jacobian<-1, SwshTags::Ethbar>::apply(
         make_not_null(&ethbar_jbar_q), one_minus_y, eth_r_divided_by_r,
         conj(dy_j.data()) * q.data() + conj(j.data()) * get(dy_q).data());
-    auto ethbar_jbar_eth_beta = buffer<-2>(n);
+    auto& ethbar_jbar_eth_beta = get<Temp<36, -2>>(buffer);
     Spectral::Swsh::angular_derivatives<tmpl::list<SwshTags::Ethbar>>(
         l_max, 1, make_not_null(&get(ethbar_jbar_eth_beta)),
         conj(j) * get(eth_beta));
@@ -309,11 +334,11 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
   }
 
   // -- dy W from the W-hypersurface equation --
-  auto dy_w = buffer<0>(n);
+  auto& dy_w = get<Temp<37, 0>>(buffer);
   {
-    auto pole_w = buffer<0>(n);
-    auto regular_w = buffer<0>(n);
-    auto script_av = buffer<0>(n);
+    auto& pole_w = get<Temp<38, 0>>(buffer);
+    auto& regular_w = get<Temp<39, 0>>(buffer);
+    auto& script_av = get<Temp<40, 0>>(buffer);
     ComputeBondiIntegrand<Tags::PoleOfIntegrand<Tags::BondiW>>::apply(
         make_not_null(&pole_w), ethbar_u);
     ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>>::apply(
@@ -325,15 +350,15 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
   }
 
   // -- right- and left-hand sides of the H-hypersurface equation --
-  auto pole_h = buffer<2>(n);
+  auto& pole_h = get<Temp<41, 2>>(buffer);
   ComputeBondiIntegrand<Tags::PoleOfIntegrand<Tags::BondiH>>::apply(
       make_not_null(&pole_h), j_scalar, u_scalar, w_scalar, eth_u, ethbar_j,
       ethbar_jbar_u, ethbar_u, k);
-  auto regular_h = buffer<2>(n);
-  auto script_aj = buffer<0>(n);
-  auto script_bj = buffer<0>(n);
-  auto script_cj = buffer<2>(n);
-  auto dy_dy_j_argument = buffer<2>(n);
+  auto& regular_h = get<Temp<42, 2>>(buffer);
+  auto& script_aj = get<Temp<43, 0>>(buffer);
+  auto& script_bj = get<Temp<44, 0>>(buffer);
+  auto& script_cj = get<Temp<45, 2>>(buffer);
+  auto& dy_dy_j_argument = get<Temp<46, 2>>(buffer);
   get(dy_dy_j_argument).data() = ddj;
   ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiH>>::apply(
       make_not_null(&regular_h), make_not_null(&script_aj),
@@ -344,9 +369,9 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
       ethbar_j, ethbar_jbar_dy_j, ethbar_jbar_q_minus_2_eth_beta, ethbar_q,
       ethbar_u, du_r_divided_by_r, eth_r_divided_by_r, k, two, r_scalar);
 
-  auto linear_factor = buffer<0>(n);
-  auto linear_factor_conjugate = buffer<4>(n);
-  auto script_djbar = buffer<2>(n);
+  auto& linear_factor = get<Temp<47, 0>>(buffer);
+  auto& linear_factor_conjugate = get<Temp<48, 4>>(buffer);
+  auto& script_djbar = get<Temp<49, 2>>(buffer);
   ComputeBondiIntegrand<Tags::LinearFactor<Tags::BondiH>>::apply(
       make_not_null(&linear_factor), make_not_null(&script_djbar), dy_j_scalar,
       j_scalar, two);
@@ -354,7 +379,7 @@ Scalar<SpinWeighted<ComplexDataVector, 2>> evaluate_worldtube_h_residual(
       make_not_null(&linear_factor_conjugate), make_not_null(&script_djbar),
       dy_j_scalar, j_scalar, two);
 
-  auto residual = buffer<2>(n);
+  Scalar<SpinWeighted<ComplexDataVector, 2>> residual{n};
   get(residual).data() =
       get(pole_h).data() + 2.0 * get(regular_h).data() -
       (2.0 * get(dy_h_numerical_scalar).data() +
