@@ -4,6 +4,7 @@
 spectre_target_sources(
   ${LIBRARY}
   PRIVATE
+  CauchyFirstOrder.cpp
   CauchySecondOrder.cpp
   ComputeSecondOrderRadialDerivativeJ.cpp
   ConformalFactor.cpp
@@ -17,6 +18,7 @@ spectre_target_headers(
   ${LIBRARY}
   INCLUDE_DIRECTORY ${CMAKE_SOURCE_DIR}/src
   HEADERS
+  CauchyFirstOrder.hpp
   CauchySecondOrder.hpp
   ComputeSecondOrderRadialDerivativeJ.hpp
   ConformalFactor.hpp
