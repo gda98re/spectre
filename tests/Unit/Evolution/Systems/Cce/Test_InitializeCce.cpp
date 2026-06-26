@@ -11,6 +11,7 @@
 #include "DataStructures/Variables.hpp"
 #include "DataStructures/VariablesTag.hpp"
 #include "Evolution/Systems/Cce/GaugeTransformBoundaryData.hpp"
+#include "Evolution/Systems/Cce/Initialize/CauchyFirstOrder.hpp"
 #include "Evolution/Systems/Cce/Initialize/CauchySecondOrder.hpp"
 #include "Evolution/Systems/Cce/Initialize/ConformalFactor.hpp"
 #include "Evolution/Systems/Cce/Initialize/InitializeJ.hpp"
@@ -403,6 +404,69 @@ void test_cauchy_second_order_asymptotic_j_error(
 }
 
 template <typename DbTags>
+void test_initialize_j_cauchy_first_order(
+    const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
+    const size_t l_max, const size_t /*number_of_radial_points*/) {
+  auto node_lock = Parallel::NodeLock{};
+  db::mutate_apply<InitializeJ::CauchyFirstOrder::return_tags,
+                   InitializeJ::CauchyFirstOrder::argument_tags>(
+      InitializeJ::CauchyFirstOrder{1.0e-10, 400, true}, box_to_initialize,
+      make_not_null(&node_lock));
+
+  // note we want to copy here to compare against the next version of the
+  // computation
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+  const auto initialized_j = db::get<Tags::BondiJ>(*box_to_initialize);
+
+  const auto initializer = InitializeJ::CauchyFirstOrder{1.0e-10, 400, true};
+  const auto serialized_and_deserialized_initializer =
+      serialize_and_deserialize(initializer);
+
+  db::mutate_apply<InitializeJ::CauchyFirstOrder::return_tags,
+                   InitializeJ::CauchyFirstOrder::argument_tags>(
+      serialized_and_deserialized_initializer, box_to_initialize,
+      make_not_null(&node_lock));
+  const auto& initialized_j_from_serialized_and_deserialized =
+      db::get<Tags::BondiJ>(*box_to_initialize);
+
+  CHECK_ITERABLE_APPROX(
+      get(initialized_j).data(),
+      get(initialized_j_from_serialized_and_deserialized).data());
+
+  db::mutate_apply<GaugeUpdateAngularFromCartesian<
+      Tags::CauchyAngularCoords, Tags::CauchyCartesianCoords>>(
+      box_to_initialize);
+  db::mutate_apply<GaugeUpdateJacobianFromCoordinates<
+      Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+      Tags::CauchyAngularCoords, Tags::CauchyCartesianCoords>>(
+      box_to_initialize);
+  db::mutate_apply<GaugeUpdateInterpolator<Tags::CauchyAngularCoords>>(
+      box_to_initialize);
+  db::mutate_apply<
+      GaugeUpdateOmega<Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+                       Tags::PartiallyFlatGaugeOmega>>(box_to_initialize);
+
+  db::mutate_apply<PrecomputeCceDependencies<Tags::EvolutionGaugeBoundaryValue,
+                                             Tags::OneMinusY>>(
+      box_to_initialize);
+  db::mutate_apply<GaugeAdjustedBoundaryValue<Tags::BondiJ>>(box_to_initialize);
+
+  // The first-order construction sets the volume J at the worldtube to the
+  // boundary J, so the gauge-transformed boundary J must match the volume J at
+  // the boundary slice.
+  const auto& boundary_gauge_j =
+      db::get<Tags::EvolutionGaugeBoundaryValue<Tags::BondiJ>>(
+          *box_to_initialize);
+  for (size_t i = 0;
+       i < Spectral::Swsh::number_of_swsh_collocation_points(l_max); ++i) {
+    CHECK(approx(real(get(initialized_j).data()[i])) ==
+          real(get(boundary_gauge_j).data()[i]));
+    CHECK(approx(imag(get(initialized_j).data()[i])) ==
+          imag(get(boundary_gauge_j).data()[i]));
+  }
+}
+
+template <typename DbTags>
 void test_initialize_j_conformal_factor(
     const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
     const bool optimize_l_0_mode, const bool use_beta_integral_estimate,
@@ -772,6 +836,11 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
     INFO("Check no incoming radiation initial data generator");
     test_initialize_j_no_radiation(make_not_null(&box_to_initialize), l_max,
                                    number_of_radial_points);
+  }
+  {
+    INFO("Check Cauchy first-order initial data generator");
+    test_initialize_j_cauchy_first_order(make_not_null(&box_to_initialize),
+                                         l_max, number_of_radial_points);
   }
   {
     INFO("Check conformal factor initial data generator");

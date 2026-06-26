@@ -315,6 +315,7 @@ struct GaugeAdjustInitialJ {
 };
 
 /// \cond
+struct CauchyFirstOrder;
 struct NoIncomingRadiation;
 struct ZeroNonSmooth;
 template <bool evolve_ccm>
@@ -415,8 +416,8 @@ struct InitializeJ<false> : public PUP::able {
       tmpl::push_back<boundary_tags, Tags::LMax, Tags::NumberOfRadialPoints>;
 
   using creatable_classes =
-      tmpl::list<ConformalFactor, InverseCubic<false>, NoIncomingRadiation,
-                 ZeroNonSmooth, CauchySecondOrder,
+      tmpl::list<CauchyFirstOrder, ConformalFactor, InverseCubic<false>,
+                 NoIncomingRadiation, ZeroNonSmooth, CauchySecondOrder,
                  ::Cce::Solutions::LinearizedBondiSachs_detail::InitializeJ::
                      LinearizedBondiSachs>;
 
@@ -444,6 +445,7 @@ struct InitializeJ<false> : public PUP::able {
 }  // namespace Cce
 
 #include "Evolution/Systems/Cce/AnalyticSolutions/LinearizedBondiSachsInitializeJ.hpp"
+#include "Evolution/Systems/Cce/Initialize/CauchyFirstOrder.hpp"
 #include "Evolution/Systems/Cce/Initialize/CauchySecondOrder.hpp"
 #include "Evolution/Systems/Cce/Initialize/ConformalFactor.hpp"
 #include "Evolution/Systems/Cce/Initialize/InverseCubic.hpp"
