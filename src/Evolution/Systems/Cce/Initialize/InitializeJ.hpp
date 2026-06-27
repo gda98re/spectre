@@ -315,7 +315,10 @@ struct GaugeAdjustInitialJ {
 };
 
 /// \cond
+struct AngularGauge;
 struct NoIncomingRadiation;
+struct ReadBondiJCauchy;
+struct ReadJFromFile;
 struct ZeroNonSmooth;
 template <bool evolve_ccm>
 struct InverseCubic;
@@ -415,7 +418,8 @@ struct InitializeJ<false> : public PUP::able {
       tmpl::push_back<boundary_tags, Tags::LMax, Tags::NumberOfRadialPoints>;
 
   using creatable_classes =
-      tmpl::list<ConformalFactor, InverseCubic<false>, NoIncomingRadiation,
+      tmpl::list<AngularGauge, ConformalFactor, InverseCubic<false>,
+                 NoIncomingRadiation, ReadBondiJCauchy, ReadJFromFile,
                  ZeroNonSmooth, CauchySecondOrder,
                  ::Cce::Solutions::LinearizedBondiSachs_detail::InitializeJ::
                      LinearizedBondiSachs>;
@@ -444,8 +448,11 @@ struct InitializeJ<false> : public PUP::able {
 }  // namespace Cce
 
 #include "Evolution/Systems/Cce/AnalyticSolutions/LinearizedBondiSachsInitializeJ.hpp"
+#include "Evolution/Systems/Cce/Initialize/AngularGauge.hpp"
 #include "Evolution/Systems/Cce/Initialize/CauchySecondOrder.hpp"
 #include "Evolution/Systems/Cce/Initialize/ConformalFactor.hpp"
 #include "Evolution/Systems/Cce/Initialize/InverseCubic.hpp"
 #include "Evolution/Systems/Cce/Initialize/NoIncomingRadiation.hpp"
+#include "Evolution/Systems/Cce/Initialize/ReadBondiJCauchy.hpp"
+#include "Evolution/Systems/Cce/Initialize/ReadJFromFile.hpp"
 #include "Evolution/Systems/Cce/Initialize/ZeroNonSmooth.hpp"
