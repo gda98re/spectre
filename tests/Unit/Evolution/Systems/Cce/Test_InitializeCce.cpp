@@ -209,7 +209,7 @@ void test_initialize_j_no_radiation(
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::InitializeJ<false>::mutate_tags,
                    InitializeJ::InitializeJ<false>::argument_tags>(
-      InitializeJ::NoIncomingRadiation{1.0e-8, 400}, box_to_initialize,
+      InitializeJ::NoIncomingRadiation<false>{1.0e-8, 400}, box_to_initialize,
       make_not_null(&node_lock));
 
   // note we want to copy here to compare against the next version of the
@@ -217,7 +217,7 @@ void test_initialize_j_no_radiation(
   // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
   const auto initialized_j = db::get<Tags::BondiJ>(*box_to_initialize);
 
-  const auto initializer = InitializeJ::NoIncomingRadiation{1.0e-8, 400};
+  const auto initializer = InitializeJ::NoIncomingRadiation<false>{1.0e-8, 400};
   const auto serialized_and_deserialized_initializer =
       serialize_and_deserialize(initializer);
 

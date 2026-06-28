@@ -172,6 +172,8 @@ class ObserveFields : public Event {
                  zero_one_two_radial_derivs<Tags::BondiW>,
                  zero_one_two_radial_derivs<Tags::BondiH, false>,
                  zero_one_two_radial_derivs<Tags::BondiJ>,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>,
                  zero_one_two_radial_derivs<Tags::Du<Tags::BondiJ>>,
                  Tags::BondiR,
                  Tags::Psi0,
