@@ -135,7 +135,7 @@ void test_initialize_j_zero_nonsmooth(
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::InitializeJ<false>::mutate_tags,
                    InitializeJ::InitializeJ<false>::argument_tags>(
-      InitializeJ::ZeroNonSmooth{1.0e-8, 400}, box_to_initialize,
+      InitializeJ::ZeroNonSmooth<false>{1.0e-8, 400}, box_to_initialize,
       make_not_null(&node_lock));
 
   // note we want to copy here to compare against the next version of the
@@ -143,7 +143,7 @@ void test_initialize_j_zero_nonsmooth(
   // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
   const auto initialized_j = db::get<Tags::BondiJ>(*box_to_initialize);
 
-  const auto initializer = InitializeJ::ZeroNonSmooth{1.0e-8, 400};
+  const auto initializer = InitializeJ::ZeroNonSmooth<false>{1.0e-8, 400};
   const auto serialized_and_deserialized_initializer =
       serialize_and_deserialize(initializer);
 
@@ -196,7 +196,7 @@ void test_zero_non_smooth_error(
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::InitializeJ<false>::mutate_tags,
                    InitializeJ::InitializeJ<false>::argument_tags>(
-      InitializeJ::ZeroNonSmooth{1.0e-12, 1, true}, box_to_initialize,
+      InitializeJ::ZeroNonSmooth<false>{1.0e-12, 1, true}, box_to_initialize,
       make_not_null(&node_lock));
 }
 

@@ -398,6 +398,7 @@ struct GaugeAdjustInitialJ {
 /// \cond
 template <bool evolve_ccm>
 struct NoIncomingRadiation;
+template <bool evolve_ccm>
 struct ZeroNonSmooth;
 template <bool evolve_ccm>
 struct InverseCubic;
@@ -442,7 +443,8 @@ struct InitializeJ<true> : public PUP::able {
   // The evolution of inertial coordinates are allowed only when InverseCubic is
   // used
   using creatable_classes =
-      tmpl::list<InverseCubic<true>, NoIncomingRadiation<true>>;
+      tmpl::list<InverseCubic<true>, NoIncomingRadiation<true>,
+                 ZeroNonSmooth<true>>;
 
   InitializeJ() = default;
   explicit InitializeJ(CkMigrateMessage* /*msg*/) {}
@@ -499,7 +501,8 @@ struct InitializeJ<false> : public PUP::able {
 
   using creatable_classes =
       tmpl::list<ConformalFactor, InverseCubic<false>,
-                 NoIncomingRadiation<false>, ZeroNonSmooth, CauchySecondOrder,
+                 NoIncomingRadiation<false>, ZeroNonSmooth<false>,
+                 CauchySecondOrder,
                  ::Cce::Solutions::LinearizedBondiSachs_detail::InitializeJ::
                      LinearizedBondiSachs>;
 
