@@ -33,20 +33,19 @@ void compute_inverse_jacobian_target(
     const SpinWeighted<ComplexDataVector, 2>& forward_gauge_c,
     const SpinWeighted<ComplexDataVector, 0>& forward_gauge_d,
     const size_t /*l_max*/) {
-  // Four times the squared conformal factor of the forward map,
-  // (2 omega)^2 = d \bar d - c \bar c.
-  const ComplexDataVector two_omega_squared =
-      forward_gauge_d.data() * conj(forward_gauge_d.data()) -
-      forward_gauge_c.data() * conj(forward_gauge_c.data());
-  // TODO(physics): replace with the exact inverse-Jacobian relation. The
-  // expressions below are the leading-order (near-identity) inverse Jacobians,
-  // provided as a placeholder so the surrounding inversion machinery can be
-  // built and tested. The metamorphic inverse-of-forward angular-map test
-  // quantifies the residual once the exact relation is supplied here.
-  target_d_inv->data() = conj(forward_gauge_d.data()) / two_omega_squared *
-                         std::complex<double>(2.0, 0.0);
-  target_c_inv->data() = -forward_gauge_c.data() / two_omega_squared *
-                         std::complex<double>(2.0, 0.0);
+  // Inverse Jacobians at the same spacetime point, from the identity
+  // \partial_\hat{A} x^A \partial_A \hat{x}^\hat{B} = \delta (Moxon2020 Eq.
+  // 4.18, with a -> c, b -> d). The forward solve supplies the partially flat
+  // ("hat") Jacobians forward_gauge_c = \hat a, forward_gauge_d = \hat b, with
+  // forward conformal factor \hat\omega^2 = (1/4)(\hat b \bar{\hat b}
+  //                                                - \hat a \bar{\hat a}).
+  // The inverse (Cauchy) Jacobians the inertial solve must reproduce are then
+  //   c = - \hat a / \hat\omega^2,   d = conj(\hat b) / \hat\omega^2.
+  const ComplexDataVector omega_squared =
+      0.25 * (forward_gauge_d.data() * conj(forward_gauge_d.data()) -
+              forward_gauge_c.data() * conj(forward_gauge_c.data()));
+  target_c_inv->data() = -forward_gauge_c.data() / omega_squared;
+  target_d_inv->data() = conj(forward_gauge_d.data()) / omega_squared;
 }
 
 void jacobian_match_heuristic(
