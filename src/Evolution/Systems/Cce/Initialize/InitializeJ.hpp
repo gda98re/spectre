@@ -276,6 +276,87 @@ double adjust_angular_coordinates_for_j(
         angular_cauchy_coordinates,
     const SpinWeighted<ComplexDataVector, 2>& surface_j, size_t l_max,
     double tolerance, size_t max_steps, bool adjust_volume_gauge);
+
+/*!
+ * \brief Given the converged forward (Cauchy) gauge Jacobians, produce the
+ * target inverse Jacobians `(target_c_inv, target_d_inv)` that the inertial
+ * (PartiallyFlat) angular solve must reproduce.
+ *
+ * \details This is the single place the inverse-transformation physics lives;
+ * the body currently holds a leading-order placeholder to be replaced with the
+ * exact relation. See the definition in `InitializeJ.cpp`.
+ */
+void compute_inverse_jacobian_target(
+    gsl::not_null<SpinWeighted<ComplexDataVector, 2>*> target_c_inv,
+    gsl::not_null<SpinWeighted<ComplexDataVector, 0>*> target_d_inv,
+    const SpinWeighted<ComplexDataVector, 2>& forward_gauge_c,
+    const SpinWeighted<ComplexDataVector, 0>& forward_gauge_d, size_t l_max);
+
+/*!
+ * \brief Iteration heuristic that drives the current inverse-solve gauge
+ * Jacobians `(gauge_c, gauge_d)` toward the interpolated targets, used by
+ * `invert_angular_coordinates`.
+ */
+void jacobian_match_heuristic(
+    gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> gauge_c_step,
+    gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*> gauge_d_step,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+    const SpinWeighted<ComplexDataVector, 2>& target_c,
+    const SpinWeighted<ComplexDataVector, 0>& target_d, size_t l_max);
+
+/*!
+ * \brief Solve for the inertial ("PartiallyFlat") angular coordinates that
+ * invert the Cauchy angular-coordinate transformation.
+ *
+ * \details Reuses `iteratively_adapt_angular_coordinates` (operating on the
+ * supplied inertial coordinate buffers), driving the inverse-solve gauge
+ * Jacobians toward `(target_c_inv, target_d_inv)` (the inverse Jacobians on the
+ * Cauchy collocation grid, typically produced by
+ * `compute_inverse_jacobian_target` in the forward solve's finalize hook). The
+ * targets are interpolated through the current inverse-solve interpolator each
+ * iteration. Returns the achieved error.
+ */
+inline double invert_angular_coordinates(
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_inertial_coordinates,
+    const SpinWeighted<ComplexDataVector, 2>& target_c_inv,
+    const SpinWeighted<ComplexDataVector, 0>& target_d_inv, const size_t l_max,
+    const double tolerance, const size_t max_steps,
+    const double error_threshold, const bool require_convergence) {
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+  SpinWeighted<ComplexDataVector, 2> interpolated_target_c{
+      number_of_angular_points};
+  SpinWeighted<ComplexDataVector, 0> interpolated_target_d{
+      number_of_angular_points};
+  const auto iteration_function =
+      [&target_c_inv, &target_d_inv, &interpolated_target_c,
+       &interpolated_target_d,
+       &l_max](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+                   gauge_c_step,
+               const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
+                   gauge_d_step,
+               const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+               const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+               const Spectral::Swsh::SwshInterpolator& iteration_interpolator) {
+        iteration_interpolator.interpolate(
+            make_not_null(&interpolated_target_c), target_c_inv);
+        iteration_interpolator.interpolate(
+            make_not_null(&interpolated_target_d), target_d_inv);
+        jacobian_match_heuristic(gauge_c_step, gauge_d_step, gauge_c, gauge_d,
+                                 interpolated_target_c, interpolated_target_d,
+                                 l_max);
+        return max(abs(get(gauge_c).data() - interpolated_target_c.data()) +
+                   abs(get(gauge_d).data() - interpolated_target_d.data()));
+      };
+  return iteratively_adapt_angular_coordinates(
+      cartesian_inertial_coordinates, angular_inertial_coordinates, l_max,
+      tolerance, max_steps, error_threshold, iteration_function,
+      require_convergence);
+}
 }  // namespace detail
 
 /*!
