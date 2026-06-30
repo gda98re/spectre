@@ -5,6 +5,7 @@ spectre_target_sources(
   ${LIBRARY}
   PRIVATE
   CauchySecondOrder.cpp
+  CauchySecondOrderCleanScri.cpp
   ComputeSecondOrderRadialDerivativeJ.cpp
   ConformalFactor.cpp
   InitializeJ.cpp
@@ -18,6 +19,7 @@ spectre_target_headers(
   INCLUDE_DIRECTORY ${CMAKE_SOURCE_DIR}/src
   HEADERS
   CauchySecondOrder.hpp
+  CauchySecondOrderCleanScri.hpp
   ComputeSecondOrderRadialDerivativeJ.hpp
   ConformalFactor.hpp
   InitializeJ.hpp
