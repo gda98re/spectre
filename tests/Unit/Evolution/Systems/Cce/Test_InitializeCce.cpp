@@ -391,10 +391,12 @@ void test_initialize_j_cauchy_second_order(
     const size_t l_max, const size_t number_of_radial_points) {
   auto node_lock = Parallel::NodeLock{};
   // The angular coordinates are adapted iteratively (as in NoIncomingRadiation
-  // and ConformalFactor), so we only request a tolerance the linearized solve
-  // can reliably reach for randomly generated data.
+  // and ConformalFactor). For randomly generated data the linearized solve
+  // occasionally needs more than a few hundred iterations to reach 1e-10, so we
+  // allow up to 1000 iterations (the option maximum) to reliably converge with
+  // `require_convergence = true`.
   const auto initializer =
-      InitializeJ::CauchySecondOrder<false>{1.0e-10, 400, true, 1.0e-8};
+      InitializeJ::CauchySecondOrder<false>{1.0e-10, 1000, true, 1.0e-8};
   db::mutate_apply<InitializeJ::CauchySecondOrder<false>::return_tags,
                    InitializeJ::CauchySecondOrder<false>::argument_tags>(
       initializer, box_to_initialize, make_not_null(&node_lock));
@@ -486,10 +488,13 @@ void test_cauchy_second_order_scri_derivative_error(
   // The second-order construction drives the second radial derivative of J at
   // scri+ to (near) zero, but a tiny numerical residual always remains. An
   // unachievably small `MaxScriSecondDerivative` therefore trips the safeguard.
+  // The scri-derivative guard only fires after the angular solve completes, so
+  // allow up to 1000 iterations (as in the successful case above) to reliably
+  // reach convergence rather than aborting on the convergence error first.
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::CauchySecondOrder<false>::return_tags,
                    InitializeJ::CauchySecondOrder<false>::argument_tags>(
-      InitializeJ::CauchySecondOrder<false>{1.0e-10, 400, true, 1.0e-30},
+      InitializeJ::CauchySecondOrder<false>{1.0e-10, 1000, true, 1.0e-30},
       box_to_initialize, make_not_null(&node_lock));
 }
 
