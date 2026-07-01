@@ -409,6 +409,7 @@ template <bool evolve_ccm>
 struct InitializeJ;
 template <bool evolve_ccm>
 struct ConformalFactor;
+template <bool evolve_ccm>
 struct CauchySecondOrder;
 /// \endcond
 
@@ -449,7 +450,8 @@ struct InitializeJ<true> : public PUP::able {
   // evolved (`evolve_ccm = true`).
   using creatable_classes =
       tmpl::list<InverseCubic<true>, NoIncomingRadiation<true>,
-                 ZeroNonSmooth<true>, ConformalFactor<true>>;
+                 ZeroNonSmooth<true>, ConformalFactor<true>,
+                 CauchySecondOrder<true>>;
 
   InitializeJ() = default;
   explicit InitializeJ(CkMigrateMessage* /*msg*/) {}
@@ -507,7 +509,7 @@ struct InitializeJ<false> : public PUP::able {
   using creatable_classes =
       tmpl::list<ConformalFactor<false>, InverseCubic<false>,
                  NoIncomingRadiation<false>, ZeroNonSmooth<false>,
-                 CauchySecondOrder,
+                 CauchySecondOrder<false>,
                  ::Cce::Solutions::LinearizedBondiSachs_detail::InitializeJ::
                      LinearizedBondiSachs>;
 

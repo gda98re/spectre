@@ -396,9 +396,9 @@ void test_initialize_j_cauchy_second_order(
   // allow up to 1000 iterations (the option maximum) to reliably converge with
   // `require_convergence = true`.
   const auto initializer =
-      InitializeJ::CauchySecondOrder{1.0e-10, 1000, true, 1.0e-8};
-  db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
-                   InitializeJ::CauchySecondOrder::argument_tags>(
+      InitializeJ::CauchySecondOrder<false>{1.0e-10, 1000, true, 1.0e-8};
+  db::mutate_apply<InitializeJ::CauchySecondOrder<false>::return_tags,
+                   InitializeJ::CauchySecondOrder<false>::argument_tags>(
       initializer, box_to_initialize, make_not_null(&node_lock));
 
   // note we want to copy here to compare against the next version of the
@@ -407,8 +407,8 @@ void test_initialize_j_cauchy_second_order(
   const auto initialized_j = db::get<Tags::BondiJ>(*box_to_initialize);
   const auto serialized_and_deserialized_initializer =
       serialize_and_deserialize(initializer);
-  db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
-                   InitializeJ::CauchySecondOrder::argument_tags>(
+  db::mutate_apply<InitializeJ::CauchySecondOrder<false>::return_tags,
+                   InitializeJ::CauchySecondOrder<false>::argument_tags>(
       serialized_and_deserialized_initializer, box_to_initialize,
       make_not_null(&node_lock));
   CHECK_ITERABLE_APPROX(get(initialized_j).data(),
@@ -466,6 +466,23 @@ void test_initialize_j_cauchy_second_order(
 }
 
 template <typename DbTags>
+void test_initialize_j_cauchy_second_order_ccm(
+    const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
+    const size_t l_max, const size_t /*number_of_radial_points*/) {
+  // The `CauchySecondOrder<true>` generator runs the same second-order Cauchy
+  // solve as `CauchySecondOrder<false>` and then the shared inverse solve for
+  // the inertial coordinates. The scri second-derivative guard is loosened here
+  // since we only validate the inverse-Jacobian relation, not the asymptotics.
+  const double tolerance = 1.0e-8;
+  auto node_lock = Parallel::NodeLock{};
+  db::mutate_apply<InitializeJ::CauchySecondOrder<true>::return_tags,
+                   InitializeJ::CauchySecondOrder<true>::argument_tags>(
+      InitializeJ::CauchySecondOrder<true>{tolerance, 400, false, 1.0e-6},
+      box_to_initialize, make_not_null(&node_lock));
+  check_ccm_inverse_jacobian(box_to_initialize, l_max, tolerance);
+}
+
+template <typename DbTags>
 void test_cauchy_second_order_scri_derivative_error(
     const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize) {
   // The second-order construction drives the second radial derivative of J at
@@ -475,9 +492,9 @@ void test_cauchy_second_order_scri_derivative_error(
   // allow up to 1000 iterations (as in the successful case above) to reliably
   // reach convergence rather than aborting on the convergence error first.
   auto node_lock = Parallel::NodeLock{};
-  db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
-                   InitializeJ::CauchySecondOrder::argument_tags>(
-      InitializeJ::CauchySecondOrder{1.0e-10, 1000, true, 1.0e-30},
+  db::mutate_apply<InitializeJ::CauchySecondOrder<false>::return_tags,
+                   InitializeJ::CauchySecondOrder<false>::argument_tags>(
+      InitializeJ::CauchySecondOrder<false>{1.0e-10, 1000, true, 1.0e-30},
       box_to_initialize, make_not_null(&node_lock));
 }
 
@@ -493,9 +510,9 @@ void test_cauchy_second_order_asymptotic_j_error(
              boundary_j) { get(*boundary_j).data() += 1.0; },
       box_to_initialize);
   auto node_lock = Parallel::NodeLock{};
-  db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
-                   InitializeJ::CauchySecondOrder::argument_tags>(
-      InitializeJ::CauchySecondOrder{1.0e-10, 400, true, 1.0e-8},
+  db::mutate_apply<InitializeJ::CauchySecondOrder<false>::return_tags,
+                   InitializeJ::CauchySecondOrder<false>::argument_tags>(
+      InitializeJ::CauchySecondOrder<false>{1.0e-10, 400, true, 1.0e-8},
       box_to_initialize, make_not_null(&node_lock));
 }
 
@@ -906,6 +923,11 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
     INFO("Check second-order initial data generator");
     test_initialize_j_cauchy_second_order(make_not_null(&box_to_initialize),
                                           l_max, number_of_radial_points);
+  }
+  {
+    INFO("Check second-order CCM inverse angular solve");
+    test_initialize_j_cauchy_second_order_ccm(make_not_null(&box_to_initialize),
+                                              l_max, number_of_radial_points);
   }
   CHECK_THROWS_WITH(
       test_cauchy_second_order_scri_derivative_error(

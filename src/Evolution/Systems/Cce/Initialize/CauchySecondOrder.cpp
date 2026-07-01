@@ -25,25 +25,22 @@
 
 namespace Cce::InitializeJ {
 
-CauchySecondOrder::CauchySecondOrder(const double angular_coordinate_tolerance,
-                                     const size_t max_iterations,
-                                     const bool require_convergence,
-                                     const double max_scri_second_derivative)
-    : require_convergence_{require_convergence},
-      angular_coordinate_tolerance_{angular_coordinate_tolerance},
-      max_iterations_{max_iterations},
-      max_scri_second_derivative_{max_scri_second_derivative} {}
-
-std::unique_ptr<InitializeJ<false>> CauchySecondOrder::get_clone() const {
-  return std::make_unique<CauchySecondOrder>(*this);
-}
-
-void CauchySecondOrder::operator()(
+namespace {
+// Shared second-order Cauchy solve and volume-J construction used by both
+// `CauchySecondOrder<false>` and `CauchySecondOrder<true>`. The converged
+// forward gauge Jacobians are written to `converged_gauge_c` and
+// `converged_gauge_d` so the `evolve_ccm = true` specialization can build the
+// inverse-Jacobian target for the inertial (partially flat) coordinate solve.
+void cauchy_second_order_apply_impl(
     const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
     const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
     const gsl::not_null<
         tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
         angular_cauchy_coordinates,
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+        converged_gauge_c,
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
+        converged_gauge_d,
     const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
     const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_u,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_w,
@@ -55,7 +52,8 @@ void CauchySecondOrder::operator()(
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_du_r,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& r, const size_t l_max,
     const size_t number_of_radial_points,
-    const gsl::not_null<Parallel::NodeLock*> /*hdf5_lock*/) const {
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const double max_scri_second_derivative) {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
 
@@ -162,7 +160,7 @@ void CauchySecondOrder::operator()(
       };
 
   auto finalize_function =
-      [&j, &gauge_omega, &l_max](
+      [&j, &gauge_omega, &l_max, &converged_gauge_c, &converged_gauge_d](
           const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
           const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
           const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
@@ -174,6 +172,10 @@ void CauchySecondOrder::operator()(
         GaugeAdjustInitialJ::apply(j, gauge_c, gauge_d, gauge_omega,
                                    local_angular_cauchy_coordinates,
                                    interpolator, l_max);
+        // Store the converged forward gauge Jacobians so an `evolve_ccm = true`
+        // caller can build the inverse-Jacobian target.
+        get(*converged_gauge_c) = get(gauge_c);
+        get(*converged_gauge_d) = get(gauge_d);
       };
 
   // The angular solve can only eliminate J at scri+ through a well-behaved
@@ -195,8 +197,8 @@ void CauchySecondOrder::operator()(
 
   detail::iteratively_adapt_angular_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
-      angular_coordinate_tolerance_, max_iterations_, max_angular_solve_error,
-      iteration_function, require_convergence_, finalize_function);
+      angular_coordinate_tolerance, max_iterations, max_angular_solve_error,
+      iteration_function, require_convergence, finalize_function);
 
   // Safeguard: the second-order construction forces the second radial
   // derivative of J to vanish at scri+, and the angular gauge transform only
@@ -223,22 +225,136 @@ void CauchySecondOrder::operator()(
                   (number_of_radial_points - 1) * number_of_angular_points,
                   number_of_angular_points);
   const double max_scri_dy_dy_j = max(abs(scri_dy_dy_j.data()));
-  if (max_scri_dy_dy_j > max_scri_second_derivative_) {
+  if (max_scri_dy_dy_j > max_scri_second_derivative) {
     ERROR("The initial J has a second radial derivative at scri+ of magnitude "
           << max_scri_dy_dy_j << ", which exceeds the threshold "
-          << max_scri_second_derivative_
+          << max_scri_second_derivative
           << " set by the MaxScriSecondDerivative option. The matched solution "
              "is not asymptotically well-behaved; check the worldtube boundary "
              "data or raise the threshold.");
   }
 }
+}  // namespace
 
-void CauchySecondOrder::pup(PUP::er& p) {
+CauchySecondOrder<false>::CauchySecondOrder(
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const double max_scri_second_derivative)
+    : require_convergence_{require_convergence},
+      angular_coordinate_tolerance_{angular_coordinate_tolerance},
+      max_iterations_{max_iterations},
+      max_scri_second_derivative_{max_scri_second_derivative} {}
+
+std::unique_ptr<InitializeJ<false>> CauchySecondOrder<false>::get_clone()
+    const {
+  return std::make_unique<CauchySecondOrder>(*this);
+}
+
+void CauchySecondOrder<false>::operator()(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_cauchy_coordinates,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_u,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_w,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_beta,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_q,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_du_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_du_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_du_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& r, const size_t l_max,
+    const size_t number_of_radial_points,
+    const gsl::not_null<Parallel::NodeLock*> /*hdf5_lock*/) const {
+  Scalar<SpinWeighted<ComplexDataVector, 2>> converged_gauge_c{};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> converged_gauge_d{};
+  cauchy_second_order_apply_impl(
+      j, cartesian_cauchy_coordinates, angular_cauchy_coordinates,
+      make_not_null(&converged_gauge_c), make_not_null(&converged_gauge_d),
+      boundary_j, boundary_u, boundary_w, boundary_beta, boundary_q,
+      boundary_du_j, boundary_dr_j, boundary_du_dr_j, boundary_du_r, r, l_max,
+      number_of_radial_points, angular_coordinate_tolerance_, max_iterations_,
+      require_convergence_, max_scri_second_derivative_);
+}
+
+void CauchySecondOrder<false>::pup(PUP::er& p) {
   p | require_convergence_;
   p | angular_coordinate_tolerance_;
   p | max_iterations_;
   p | max_scri_second_derivative_;
 }
 
-PUP::able::PUP_ID CauchySecondOrder::my_PUP_ID = 0;  // NOLINT
+PUP::able::PUP_ID CauchySecondOrder<false>::my_PUP_ID = 0;  // NOLINT
+
+CauchySecondOrder<true>::CauchySecondOrder(
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const double max_scri_second_derivative)
+    : require_convergence_{require_convergence},
+      angular_coordinate_tolerance_{angular_coordinate_tolerance},
+      max_iterations_{max_iterations},
+      max_scri_second_derivative_{max_scri_second_derivative} {}
+
+std::unique_ptr<InitializeJ<true>> CauchySecondOrder<true>::get_clone() const {
+  return std::make_unique<CauchySecondOrder>(*this);
+}
+
+void CauchySecondOrder<true>::operator()(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_cauchy_coordinates,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_inertial_coordinates,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_u,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_w,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_beta,
+    const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_q,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_du_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_du_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_du_r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& r, const size_t l_max,
+    const size_t number_of_radial_points,
+    const gsl::not_null<Parallel::NodeLock*> /*hdf5_lock*/) const {
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+  Scalar<SpinWeighted<ComplexDataVector, 2>> converged_gauge_c{
+      number_of_angular_points};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> converged_gauge_d{
+      number_of_angular_points};
+  cauchy_second_order_apply_impl(
+      j, cartesian_cauchy_coordinates, angular_cauchy_coordinates,
+      make_not_null(&converged_gauge_c), make_not_null(&converged_gauge_d),
+      boundary_j, boundary_u, boundary_w, boundary_beta, boundary_q,
+      boundary_du_j, boundary_dr_j, boundary_du_dr_j, boundary_du_r, r, l_max,
+      number_of_radial_points, angular_coordinate_tolerance_, max_iterations_,
+      require_convergence_, max_scri_second_derivative_);
+
+  // Solve for the inertial (partially flat) coordinates that invert the Cauchy
+  // angular transformation, using the same shared inverse solve as the other
+  // `evolve_ccm = true` generators.
+  SpinWeighted<ComplexDataVector, 2> target_c_inv{number_of_angular_points};
+  SpinWeighted<ComplexDataVector, 0> target_d_inv{number_of_angular_points};
+  detail::compute_inverse_jacobian_target(
+      make_not_null(&target_c_inv), make_not_null(&target_d_inv),
+      get(converged_gauge_c), get(converged_gauge_d), l_max);
+  detail::invert_angular_coordinates(
+      cartesian_inertial_coordinates, angular_inertial_coordinates,
+      target_c_inv, target_d_inv, l_max, angular_coordinate_tolerance_,
+      max_iterations_, 1.0e-2, require_convergence_);
+}
+
+void CauchySecondOrder<true>::pup(PUP::er& p) {
+  p | require_convergence_;
+  p | angular_coordinate_tolerance_;
+  p | max_iterations_;
+  p | max_scri_second_derivative_;
+}
+
+PUP::able::PUP_ID CauchySecondOrder<true>::my_PUP_ID = 0;  // NOLINT
 }  // namespace Cce::InitializeJ
