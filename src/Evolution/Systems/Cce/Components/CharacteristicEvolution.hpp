@@ -106,8 +106,6 @@ struct CharacteristicEvolution {
   using metavariables = Metavariables;
   static constexpr bool evolve_ccm = Metavariables::evolve_ccm;
   using cce_system = Cce::System<evolve_ccm>;
-  using const_global_cache_tags =
-      tmpl::list<::Tags::EventsAndTriggers<Triggers::WhenToCheck::AtSlabs>>;
 
   using initialize_action_list = tmpl::list<
       Actions::InitializeCharacteristicEvolutionVariables<Metavariables>,
@@ -234,15 +232,13 @@ struct CharacteristicEvolution {
       // integration (unlike the other Bondi radial derivatives), so it is
       // computed explicitly here, from the filtered `H`, for volume output.
       ::Actions::MutateApply<PreSwshDerivatives<Tags::Dy<Tags::BondiH>>>,
-      tmpl::conditional_t<
-          evolve_ccm, tmpl::list<>,
-          tmpl::flatten<tmpl::list<
-              std::conditional_t<Metavariables::local_time_stepping,
-                                 evolution::Actions::RunEventsAndTriggers<
-                                     Triggers::WhenToCheck::AtSteps>,
-                                 tmpl::list<>>,
-              evolution::Actions::RunEventsAndTriggers<
-                  Triggers::WhenToCheck::AtSlabs>>>>,
+      tmpl::flatten<tmpl::list<
+          std::conditional_t<Metavariables::local_time_stepping,
+                             evolution::Actions::RunEventsAndTriggers<
+                                 Triggers::WhenToCheck::AtSteps>,
+                             tmpl::list<>>,
+          evolution::Actions::RunEventsAndTriggers<
+              Triggers::WhenToCheck::AtSlabs>>>,
       compute_scri_quantities_and_observe,
       ::Actions::MutateApply<ChangeStepSize<
           typename Metavariables::cce_step_choosers, Tags::CceEvolutionPrefix>>,

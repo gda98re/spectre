@@ -148,17 +148,20 @@ struct MockElement {
       Parallel::Phase::Initialization,
       tmpl::list<ActionTesting::InitializeDataBox<tmpl::push_back<
           tmpl::list_difference<
-            ObserveFields::available_tags_to_observe,
-            tmpl::list<
-              Tags::Psi0, Tags::Psi1, Tags::Psi2,
-              Tags::NewmanPenroseAlpha, Tags::NewmanPenroseBeta,
-              Tags::NewmanPenroseGamma, Tags::NewmanPenroseEpsilon,
-              // Tags::NewmanPenroseKappa, // in our tetrad, \kappa=0
-              Tags::NewmanPenroseTau, Tags::NewmanPenroseSigma,
-              Tags::NewmanPenroseRho,
-              Tags::NewmanPenrosePi, Tags::NewmanPenroseNu,
-              Tags::NewmanPenroseMu, Tags::NewmanPenroseLambda
-              >>,
+              ObserveFields::available_tags_to_observe,
+              tmpl::list<Tags::Psi0, Tags::Psi1, Tags::Psi2,
+                         Tags::NewmanPenroseAlpha, Tags::NewmanPenroseBeta,
+                         Tags::NewmanPenroseGamma, Tags::NewmanPenroseEpsilon,
+                         // Tags::NewmanPenroseKappa, // in our tetrad, \kappa=0
+                         Tags::NewmanPenroseTau, Tags::NewmanPenroseSigma,
+                         Tags::NewmanPenroseRho, Tags::NewmanPenrosePi,
+                         Tags::NewmanPenroseNu, Tags::NewmanPenroseMu,
+                         Tags::NewmanPenroseLambda,
+                         // The third and fourth radial derivatives of J are
+                         // provided by compute tags in the ObservationBox, not
+                         // stored in the DataBox.
+                         Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
+                         Tags::Dy<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>>>,
           Spectral::Swsh::Tags::Derivative<Tags::BondiBeta,
                                            Spectral::Swsh::Tags::Eth>,
           Spectral::Swsh::Tags::Derivative<Tags::Dy<Tags::BondiBeta>,
@@ -169,8 +172,7 @@ struct MockElement {
                                            Spectral::Swsh::Tags::Ethbar>,
           Spectral::Swsh::Tags::Derivative<Tags::BondiU,
                                            Spectral::Swsh::Tags::Eth>,
-          Tags::Exp2Beta,
-          Tags::BondiK, Tags::LMax, Tags::NumberOfRadialPoints,
+          Tags::Exp2Beta, Tags::BondiK, Tags::LMax, Tags::NumberOfRadialPoints,
           ::Tags::Time>>>>>;
 };
 
