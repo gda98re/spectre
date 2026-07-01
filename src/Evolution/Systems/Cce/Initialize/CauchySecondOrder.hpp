@@ -21,6 +21,55 @@ class ComplexDataVector;
 
 namespace Cce::InitializeJ {
 
+/// \cond
+template <bool EvolveCcm>
+struct CauchySecondOrder;
+/// \endcond
+
+namespace CauchySecondOrder_detail {
+struct AngularCoordinateTolerance {
+  using type = double;
+  static std::string name() { return "AngularCoordTolerance"; }
+  static constexpr Options::String help = {
+      "Tolerance of initial angular coordinates for CCE"};
+  static type lower_bound() { return 1.0e-14; }
+  static type upper_bound() { return 1.0e-3; }
+  static type suggested_value() { return 1.0e-12; }
+};
+
+struct MaxIterations {
+  using type = size_t;
+  static constexpr Options::String help = {
+      "Number of linearized inversion iterations."};
+  static type lower_bound() { return 10; }
+  static type upper_bound() { return 1000; }
+  static type suggested_value() { return 300; }
+};
+
+struct RequireConvergence {
+  using type = bool;
+  static constexpr Options::String help = {
+      "If true, initialization will error if it hits MaxIterations"};
+  static type suggested_value() { return true; }
+};
+
+struct MaxScriSecondDerivative {
+  using type = double;
+  static constexpr Options::String help = {
+      "Abort initialization if the largest second radial derivative of J at "
+      "scri+ of the final initial data exceeds this threshold. The "
+      "second-order construction drives this derivative to (near) zero, so a "
+      "large value indicates a poorly matched solution. Set to a large value "
+      "to effectively disable the check."};
+  static type lower_bound() { return 1.0e-14; }
+  static type upper_bound() { return 1.0e2; }
+  static type suggested_value() { return 1.0e-8; }
+};
+
+using options = tmpl::list<AngularCoordinateTolerance, MaxIterations,
+                           RequireConvergence, MaxScriSecondDerivative>;
+}  // namespace CauchySecondOrder_detail
+
 /*!
  * \brief Initialize \f$J\f$ on the first hypersurface using a second-order
  * matching at the worldtube.
@@ -32,48 +81,9 @@ namespace Cce::InitializeJ {
  * initialization aborts if the second radial derivative of \f$J\f$ at scri+
  * of the final solution exceeds `MaxScriSecondDerivative`.
  */
-struct CauchySecondOrder : InitializeJ<false> {
-  struct AngularCoordinateTolerance {
-    using type = double;
-    static std::string name() { return "AngularCoordTolerance"; }
-    static constexpr Options::String help = {
-        "Tolerance of initial angular coordinates for CCE"};
-    static type lower_bound() { return 1.0e-14; }
-    static type upper_bound() { return 1.0e-3; }
-    static type suggested_value() { return 1.0e-12; }
-  };
-
-  struct MaxIterations {
-    using type = size_t;
-    static constexpr Options::String help = {
-        "Number of linearized inversion iterations."};
-    static type lower_bound() { return 10; }
-    static type upper_bound() { return 1000; }
-    static type suggested_value() { return 300; }
-  };
-
-  struct RequireConvergence {
-    using type = bool;
-    static constexpr Options::String help = {
-        "If true, initialization will error if it hits MaxIterations"};
-    static type suggested_value() { return true; }
-  };
-
-  struct MaxScriSecondDerivative {
-    using type = double;
-    static constexpr Options::String help = {
-        "Abort initialization if the largest second radial derivative of J at "
-        "scri+ of the final initial data exceeds this threshold. The "
-        "second-order construction drives this derivative to (near) zero, so a "
-        "large value indicates a poorly matched solution. Set to a large value "
-        "to effectively disable the check."};
-    static type lower_bound() { return 1.0e-14; }
-    static type upper_bound() { return 1.0e2; }
-    static type suggested_value() { return 1.0e-8; }
-  };
-
-  using options = tmpl::list<AngularCoordinateTolerance, MaxIterations,
-                             RequireConvergence, MaxScriSecondDerivative>;
+template <>
+struct CauchySecondOrder<false> : InitializeJ<false> {
+  using options = CauchySecondOrder_detail::options;
   static constexpr Options::String help = {
       "Second-order initial data generator for the Cauchy CCE evolution."};
 
@@ -110,6 +120,84 @@ struct CauchySecondOrder : InitializeJ<false> {
       gsl::not_null<
           tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
           angular_cauchy_coordinates,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_u,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_w,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_beta,
+      const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_q,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_du_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_du_dr_j,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_du_r,
+      const Scalar<SpinWeighted<ComplexDataVector, 0>>& r, size_t l_max,
+      size_t number_of_radial_points,
+      gsl::not_null<Parallel::NodeLock*> hdf5_lock) const;
+
+  void pup(PUP::er& p) override;
+
+ private:
+  bool require_convergence_ = true;
+  double angular_coordinate_tolerance_ =
+      std::numeric_limits<double>::signaling_NaN();
+  size_t max_iterations_ = 0;
+  double max_scri_second_derivative_ =
+      std::numeric_limits<double>::signaling_NaN();
+};
+
+/*!
+ * \brief Second-order Cauchy initial data (as `CauchySecondOrder<false>`),
+ * additionally producing the inertial (partially flat) coordinates required to
+ * evolve the partially flat Bondi-like coordinates (`evolve_ccm = true`).
+ *
+ * \details Identical to `CauchySecondOrder<false>` for the Cauchy angular
+ * solve, but also computes the inertial angular coordinates that invert the
+ * Cauchy angular-coordinate transformation, via
+ * `detail::invert_angular_coordinates`.
+ */
+template <>
+struct CauchySecondOrder<true> : InitializeJ<true> {
+  using options = CauchySecondOrder_detail::options;
+  static constexpr Options::String help = {
+      "Second-order initial data generator for the Cauchy CCE evolution."};
+
+  WRAPPED_PUPable_decl_template(CauchySecondOrder);  // NOLINT
+  explicit CauchySecondOrder(CkMigrateMessage* /*unused*/) {}
+
+  CauchySecondOrder(double angular_coordinate_tolerance, size_t max_iterations,
+                    bool require_convergence,
+                    double max_scri_second_derivative);
+
+  CauchySecondOrder() = default;
+
+  std::unique_ptr<InitializeJ> get_clone() const override;
+
+  // Per-class tag lists. As for `CauchySecondOrder<false>`, but additionally
+  // producing the inertial (partially flat) coordinates.
+  using return_tags =
+      tmpl::list<Tags::BondiJ, Tags::CauchyCartesianCoords,
+                 Tags::CauchyAngularCoords, Tags::PartiallyFlatCartesianCoords,
+                 Tags::PartiallyFlatAngularCoords>;
+  using argument_tags = tmpl::list<
+      Tags::BoundaryValue<Tags::BondiJ>, Tags::BoundaryValue<Tags::BondiU>,
+      Tags::BoundaryValue<Tags::BondiW>, Tags::BoundaryValue<Tags::BondiBeta>,
+      Tags::BoundaryValue<Tags::BondiQ>,
+      Tags::BoundaryValue<Tags::Du<Tags::BondiJ>>,
+      Tags::BoundaryValue<Tags::Dr<Tags::BondiJ>>,
+      Tags::BoundaryValue<Tags::Du<Tags::Dr<Tags::BondiJ>>>,
+      Tags::BoundaryValue<Tags::Du<Tags::BondiR>>,
+      Tags::BoundaryValue<Tags::BondiR>, Tags::LMax,
+      Tags::NumberOfRadialPoints>;
+
+  void operator()(
+      gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+      gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+      gsl::not_null<
+          tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+          angular_cauchy_coordinates,
+      gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+      gsl::not_null<
+          tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+          angular_inertial_coordinates,
       const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
       const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_u,
       const Scalar<SpinWeighted<ComplexDataVector, 0>>& boundary_w,
