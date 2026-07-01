@@ -196,9 +196,20 @@ class ObserveFields : public Event {
                  Tags::DuRDividedByR>>;
   // clang-format on
 
+  // The Cauchy-frame (Cauchy-gauge) J and its first two radial derivatives.
+  // These tags are present in the DataBox only when the partially flat
+  // Bondi-like coordinates are evolved (`evolve_ccm = true`), so they are
+  // observed conditionally in the call operator (see `observable_tags` there),
+  // and appear in `available_tags_to_observe` only so they can be requested via
+  // the `VariablesToObserve` option in that case.
+  using cauchy_bondi_j_tags_to_observe =
+      tmpl::list<Tags::BondiJCauchyView, Tags::Dy<Tags::BondiJCauchyView>,
+                 Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>;
+
  public:
   using available_tags_to_observe =
-      tmpl::push_back<spin_weighted_tags_to_observe,
+      tmpl::push_back<tmpl::append<spin_weighted_tags_to_observe,
+                                   cauchy_bondi_j_tags_to_observe>,
                       Tags::ComplexInertialRetardedTime, Tags::OneMinusY>;
 
   /// \cond
@@ -236,32 +247,28 @@ class ObserveFields : public Event {
                 const std::vector<std::string>& variables_to_observe,
                 const Options::Context& context = {});
 
-  using compute_tags_for_observation_box =
-    tmpl::list<Tags::Psi0Compute, Tags::Psi1Compute, Tags::Psi2Compute,
-               Tags::SwshDerivativeCompute<Tags::BondiJ,
-                                                  Spectral::Swsh::Tags::Eth>,
-               Tags::SwshDerivativeCompute<Tags::BondiW,
-                                                  Spectral::Swsh::Tags::Eth>,
-               Tags::NewmanPenroseAlphaCompute, Tags::NewmanPenroseBetaCompute,
-               Tags::NewmanPenroseGammaCompute,
-               Tags::NewmanPenroseEpsilonCompute,
-               // Tags::NewmanPenroseKappaCompute,
-               // in our choice of tetrad, \kappa=0
-               Tags::NewmanPenroseTauCompute,
-               Tags::NewmanPenroseSigmaCompute, Tags::NewmanPenroseRhoCompute,
-               Tags::NewmanPenrosePiCompute, Tags::NewmanPenroseNuCompute,
-               Tags::NewmanPenroseMuCompute, Tags::NewmanPenroseLambdaCompute,
-               Tags::SwshDerivativeCompute<Tags::NewmanPenrosePi,
-                                                 Spectral::Swsh::Tags::Eth>,
-               Tags::SwshDerivativeCompute<Tags::NewmanPenrosePi,
-                                                 Spectral::Swsh::Tags::Ethbar>,
-               Tags::DyCompute<Tags::NewmanPenrosePi>,
-               Tags::DyCompute<Tags::NewmanPenroseMu>,
-               // Third and fourth radial derivatives of J, built up from the
-               // second derivative already available in the evolution box.
-               Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
-               Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>
-      >;
+  using compute_tags_for_observation_box = tmpl::list<
+      Tags::Psi0Compute, Tags::Psi1Compute, Tags::Psi2Compute,
+      Tags::SwshDerivativeCompute<Tags::BondiJ, Spectral::Swsh::Tags::Eth>,
+      Tags::SwshDerivativeCompute<Tags::BondiW, Spectral::Swsh::Tags::Eth>,
+      Tags::NewmanPenroseAlphaCompute, Tags::NewmanPenroseBetaCompute,
+      Tags::NewmanPenroseGammaCompute, Tags::NewmanPenroseEpsilonCompute,
+      // Tags::NewmanPenroseKappaCompute,
+      // in our choice of tetrad, \kappa=0
+      Tags::NewmanPenroseTauCompute, Tags::NewmanPenroseSigmaCompute,
+      Tags::NewmanPenroseRhoCompute, Tags::NewmanPenrosePiCompute,
+      Tags::NewmanPenroseNuCompute, Tags::NewmanPenroseMuCompute,
+      Tags::NewmanPenroseLambdaCompute,
+      Tags::SwshDerivativeCompute<Tags::NewmanPenrosePi,
+                                  Spectral::Swsh::Tags::Eth>,
+      Tags::SwshDerivativeCompute<Tags::NewmanPenrosePi,
+                                  Spectral::Swsh::Tags::Ethbar>,
+      Tags::DyCompute<Tags::NewmanPenrosePi>,
+      Tags::DyCompute<Tags::NewmanPenroseMu>,
+      // Third and fourth radial derivatives of J, built up from the
+      // second derivative already available in the evolution box.
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>>;
 
   using return_tags = tmpl::list<>;
   using argument_tags = tmpl::list<::Tags::ObservationBox>;
@@ -440,9 +447,18 @@ class ObserveFields : public Event {
        Spectral::Quadrature::Equiangular}};
 
     // Create tensor_components by looping over all available spin
-    // weighted tags and checking if we are observing this tag.
+    // weighted tags and checking if we are observing this tag. The Cauchy-frame
+    // J tags exist in the DataBox only when the partially flat coordinates are
+    // evolved (`evolve_ccm = true`); include them only if present so non-CCM
+    // executables, whose boxes lack these tags, still compile.
+    using observable_tags = tmpl::append<
+        spin_weighted_tags_to_observe,
+        tmpl::conditional_t<not db::detail::has_no_matching_tag_v<
+                                typename std::decay_t<decltype(box)>::tags_list,
+                                Tags::BondiJCauchyView>,
+                            cauchy_bondi_j_tags_to_observe, tmpl::list<>>>;
     std::vector<TensorComponent> tensor_components;
-    tmpl::for_each<spin_weighted_tags_to_observe>([&](auto tag_v) {
+    tmpl::for_each<observable_tags>([&](auto tag_v) {
       using tag = tmpl::type_from<decltype(tag_v)>;
       constexpr int spin = tag::type::type::spin;
       const std::string name = detail::name<tag>();
@@ -477,7 +493,6 @@ class ObserveFields : public Event {
 
       tensor_components.emplace_back(
         name, std::move(goldberg_modes_interleaved_dv));
-
     });
 
     if (write_synchronously) {

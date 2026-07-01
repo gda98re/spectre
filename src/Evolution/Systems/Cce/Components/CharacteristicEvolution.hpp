@@ -106,6 +106,8 @@ struct CharacteristicEvolution {
   using metavariables = Metavariables;
   static constexpr bool evolve_ccm = Metavariables::evolve_ccm;
   using cce_system = Cce::System<evolve_ccm>;
+  using const_global_cache_tags =
+      tmpl::list<::Tags::EventsAndTriggers<Triggers::WhenToCheck::AtSlabs>>;
 
   using initialize_action_list = tmpl::list<
       Actions::InitializeCharacteristicEvolutionVariables<Metavariables>,
