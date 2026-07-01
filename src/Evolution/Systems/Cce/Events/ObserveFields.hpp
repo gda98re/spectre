@@ -256,7 +256,11 @@ class ObserveFields : public Event {
                Tags::SwshDerivativeCompute<Tags::NewmanPenrosePi,
                                                  Spectral::Swsh::Tags::Ethbar>,
                Tags::DyCompute<Tags::NewmanPenrosePi>,
-               Tags::DyCompute<Tags::NewmanPenroseMu>
+               Tags::DyCompute<Tags::NewmanPenroseMu>,
+               // Third and fourth radial derivatives of J, built up from the
+               // second derivative already available in the evolution box.
+               Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
+               Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>
       >;
 
   using return_tags = tmpl::list<>;
