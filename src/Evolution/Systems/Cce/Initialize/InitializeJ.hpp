@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/SpinWeighted.hpp"
@@ -87,7 +88,7 @@ double iteratively_adapt_angular_coordinates(
         angular_cauchy_coordinates,
     const size_t l_max, const double tolerance, const size_t max_steps,
     const double error_threshold, const IterationFunctor& iteration_function,
-    const bool require_convergence,
+    const bool require_convergence, const std::string_view solver_description,
     const FinalizeFunctor finalize_function = NoOpFinalize{}) {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
@@ -246,23 +247,20 @@ double iteratively_adapt_angular_coordinates(
 
   if (tolerance < max_error) {
     if (require_convergence) {
-      ERROR(
-          "Initial data iterative angular solve did not reach "
-          "target tolerance "
-          << tolerance << ".\n"
-          << "Exited after " << max_steps
-          << " iterations, achieving final\n"
-             "maximum over collocation points deviation of J from target of "
-          << max_error);
+      ERROR("The " << solver_description
+                   << " did not reach its target tolerance " << tolerance
+                   << ".\nExited after " << max_steps
+                   << " iterations, with a final residual (maximum over "
+                      "collocation points) of "
+                   << max_error << ".");
     } else {
       Parallel::printf(
-          "Warning: iterative angular solve did not reach "
-          "target tolerance %e.\n"
-          "Exited after %zu iterations, achieving final maximum over "
-          "collocation points for deviation from target of %e\n"
-          "Proceeding with evolution using the partial result from partial "
-          "angular solve.\n",
-          tolerance, max_steps, max_error);
+          "Warning: the %s did not reach its target tolerance %e.\n"
+          "Exited after %zu iterations, with a final residual (maximum over "
+          "collocation points) of %e.\n"
+          "Proceeding with the evolution using this partial result.\n",
+          std::string{solver_description}.c_str(), tolerance, max_steps,
+          max_error);
     }
   }
   return max_error;
@@ -296,29 +294,31 @@ void compute_inverse_jacobian_target(
     const SpinWeighted<ComplexDataVector, 0>& forward_gauge_d, size_t l_max);
 
 /*!
- * \brief Iteration heuristic that drives the current inverse-solve gauge
- * Jacobians `(gauge_c, gauge_d)` toward the interpolated targets, used by
- * `invert_angular_coordinates`.
+ * \brief Iteration heuristic that drives the current inverse-solve
+ * spin-weight-2 gauge Jacobian `gauge_c` toward the interpolated target
+ * `target_c`, slaving the spin-weight-0 step to it via the coordinate-map
+ * integrability constraint. Used by `invert_angular_coordinates`.
  */
 void jacobian_match_heuristic(
     gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> gauge_c_step,
     gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*> gauge_d_step,
     const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
-    const SpinWeighted<ComplexDataVector, 2>& target_c,
-    const SpinWeighted<ComplexDataVector, 0>& target_d, size_t l_max);
+    const SpinWeighted<ComplexDataVector, 2>& target_c, size_t l_max);
 
 /*!
  * \brief Solve for the inertial ("PartiallyFlat") angular coordinates that
  * invert the Cauchy angular-coordinate transformation.
  *
  * \details Reuses `iteratively_adapt_angular_coordinates` (operating on the
- * supplied inertial coordinate buffers), driving the inverse-solve gauge
- * Jacobians toward `(target_c_inv, target_d_inv)` (the inverse Jacobians on the
- * Cauchy collocation grid, typically produced by
+ * supplied inertial coordinate buffers), driving the inverse-solve
+ * spin-weight-2 gauge Jacobian toward `target_c_inv` (the exact inverse
+ * spin-weight-2 Jacobian on the Cauchy collocation grid, typically produced by
  * `compute_inverse_jacobian_target` in the forward solve's finalize hook). The
- * targets are interpolated through the current inverse-solve interpolator each
- * iteration. Returns the achieved error.
+ * target is interpolated through the current inverse-solve interpolator each
+ * iteration; the spin-weight-0 factor is slaved to it by
+ * `jacobian_match_heuristic` (see there). The convergence residual is the
+ * spin-weight-2 mismatch. Returns the achieved error.
  */
 inline double invert_angular_coordinates(
     const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
@@ -326,18 +326,24 @@ inline double invert_angular_coordinates(
         tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
         angular_inertial_coordinates,
     const SpinWeighted<ComplexDataVector, 2>& target_c_inv,
-    const SpinWeighted<ComplexDataVector, 0>& target_d_inv, const size_t l_max,
-    const double tolerance, const size_t max_steps,
+    const SpinWeighted<ComplexDataVector, 0>& /*target_d_inv*/,
+    const size_t l_max, const double tolerance, const size_t max_steps,
     const double error_threshold, const bool require_convergence) {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
   SpinWeighted<ComplexDataVector, 2> interpolated_target_c{
       number_of_angular_points};
-  SpinWeighted<ComplexDataVector, 0> interpolated_target_d{
-      number_of_angular_points};
+  // Convergence is measured by the change in the achieved spin-weight-2
+  // Jacobian between iterations, i.e. whether the coordinate map has stopped
+  // moving. The mismatch against the interpolated target is *not* a reliable
+  // stopping signal: the target is interpolated onto the moving coordinates, so
+  // it can dip below tolerance before the map has actually settled, stopping
+  // the solve early with a poor inverse.
+  SpinWeighted<ComplexDataVector, 2> previous_gauge_c{number_of_angular_points};
+  bool have_previous_gauge_c = false;
   const auto iteration_function =
-      [&target_c_inv, &target_d_inv, &interpolated_target_c,
-       &interpolated_target_d,
+      [&target_c_inv, &interpolated_target_c, &previous_gauge_c,
+       &have_previous_gauge_c,
        &l_max](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
                    gauge_c_step,
                const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
@@ -347,18 +353,30 @@ inline double invert_angular_coordinates(
                const Spectral::Swsh::SwshInterpolator& iteration_interpolator) {
         iteration_interpolator.interpolate(
             make_not_null(&interpolated_target_c), target_c_inv);
-        iteration_interpolator.interpolate(
-            make_not_null(&interpolated_target_d), target_d_inv);
         jacobian_match_heuristic(gauge_c_step, gauge_d_step, gauge_c, gauge_d,
-                                 interpolated_target_c, interpolated_target_d,
-                                 l_max);
-        return max(abs(get(gauge_c).data() - interpolated_target_c.data()) +
-                   abs(get(gauge_d).data() - interpolated_target_d.data()));
+                                 interpolated_target_c, l_max);
+        // On the first iteration report the target mismatch (a modest,
+        // strain-scale value that neither trips the divergence guard nor
+        // signals convergence); afterwards report the iterate-to-iterate
+        // change. The inverse iteration is a slowly-converging linear fixed
+        // point, so this iterate-to-iterate change decreases gradually toward
+        // the resolution-set floor; a tight `tolerance` (e.g. the production
+        // `AngularCoordTolerance`) is required to run it far enough for the
+        // coordinate map to fully settle.
+        const double residual =
+            have_previous_gauge_c
+                ? max(abs(get(gauge_c).data() - previous_gauge_c.data()))
+                : max(abs(get(gauge_c).data() - interpolated_target_c.data()));
+        previous_gauge_c = get(gauge_c);
+        have_previous_gauge_c = true;
+        return residual;
       };
   return iteratively_adapt_angular_coordinates(
       cartesian_inertial_coordinates, angular_inertial_coordinates, l_max,
       tolerance, max_steps, error_threshold, iteration_function,
-      require_convergence);
+      require_convergence,
+      "iterative inverse angular-coordinate solve for the CCM inertial "
+      "(partially flat) coordinates");
 }
 }  // namespace detail
 
@@ -397,6 +415,122 @@ struct GaugeAdjustInitialJ {
           cauchy_angular_coordinates,
       const Spectral::Swsh::SwshInterpolator& interpolator, size_t l_max);
 };
+
+namespace detail {
+/*!
+ * \brief Relative error of round-tripping the volume \f$J\f$ through the
+ * inverse and forward angular gauge transformations, a physically meaningful
+ * diagnostic for the quality of the CCM inverse angular-coordinate solve.
+ *
+ * \details The inverse solve's convergence residual measures the pointwise
+ * deviation of the inverse Jacobians from their targets, an absolute quantity
+ * whose magnitude is not by itself interpretable without the scale of the
+ * Jacobians. This function instead transforms the final partially-flat volume
+ * \f$\hat J\f$ back to the Cauchy frame using the inverse Jacobians (Moxon2020
+ * Eq. 4.18) and then forward again, returning
+ * \f$\max_i |J^\text{round trip}_i - \hat J_i| / \max_i |\hat J_i|\f$. Because
+ * the inverse Jacobians exactly invert the forward transform, this relative
+ * error is controlled by the quality of the inverse solve and is directly
+ * comparable across resolutions and data sets.
+ */
+inline double j_inverse_transform_roundtrip_relative_error(
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& volume_j,
+    const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
+        angular_cauchy_coordinates,
+    const tnsr::i<DataVector, 3>& cartesian_cauchy_coordinates,
+    const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
+        angular_inertial_coordinates,
+    const tnsr::i<DataVector, 3>& cartesian_inertial_coordinates,
+    const size_t l_max) {
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+
+  // Actual Jacobian factors of the converged forward (Cauchy) and inverse
+  // (inertial / partially flat) coordinate maps. These are computed directly
+  // from the solved coordinates so the round trip reflects the true quality of
+  // the inverse solve rather than the analytic target (which inverts the
+  // forward transform exactly by construction).
+  Scalar<SpinWeighted<ComplexDataVector, 2>> forward_gauge_c{
+      number_of_angular_points};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> forward_gauge_d{
+      number_of_angular_points};
+  GaugeUpdateJacobianFromCoordinates<
+      Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+      Tags::CauchyAngularCoords,
+      Tags::CauchyCartesianCoords>::apply(make_not_null(&forward_gauge_c),
+                                          make_not_null(&forward_gauge_d),
+                                          angular_cauchy_coordinates,
+                                          cartesian_cauchy_coordinates, l_max);
+  Scalar<SpinWeighted<ComplexDataVector, 2>> inverse_gauge_c{
+      number_of_angular_points};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> inverse_gauge_d{
+      number_of_angular_points};
+  GaugeUpdateJacobianFromCoordinates<
+      Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+      Tags::PartiallyFlatAngularCoords, Tags::PartiallyFlatCartesianCoords>::
+      apply(make_not_null(&inverse_gauge_c), make_not_null(&inverse_gauge_d),
+            angular_inertial_coordinates, cartesian_inertial_coordinates,
+            l_max);
+
+  // Conformal factors of the forward and inverse angular transformations.
+  Scalar<SpinWeighted<ComplexDataVector, 0>> forward_omega{
+      number_of_angular_points};
+  get(forward_omega).data() =
+      0.5 *
+      sqrt(get(forward_gauge_d).data() * conj(get(forward_gauge_d).data()) -
+           get(forward_gauge_c).data() * conj(get(forward_gauge_c).data()));
+  Scalar<SpinWeighted<ComplexDataVector, 0>> inverse_omega{
+      number_of_angular_points};
+  get(inverse_omega).data() =
+      0.5 *
+      sqrt(get(inverse_gauge_d).data() * conj(get(inverse_gauge_d).data()) -
+           get(inverse_gauge_c).data() * conj(get(inverse_gauge_c).data()));
+
+  const Spectral::Swsh::SwshInterpolator inverse_interpolator{
+      get<0>(angular_inertial_coordinates),
+      get<1>(angular_inertial_coordinates), l_max};
+  const Spectral::Swsh::SwshInterpolator forward_interpolator{
+      get<0>(angular_cauchy_coordinates), get<1>(angular_cauchy_coordinates),
+      l_max};
+
+  // Round trip: partially flat -> Cauchy (inverse Jacobians), then
+  // Cauchy -> partially flat (forward Jacobians). A perfect inverse solve
+  // returns the original partially-flat J exactly.
+  Scalar<SpinWeighted<ComplexDataVector, 2>> roundtrip_j = volume_j;
+  GaugeAdjustInitialJ::apply(
+      make_not_null(&roundtrip_j), inverse_gauge_c, inverse_gauge_d,
+      inverse_omega, angular_inertial_coordinates, inverse_interpolator, l_max);
+  GaugeAdjustInitialJ::apply(
+      make_not_null(&roundtrip_j), forward_gauge_c, forward_gauge_d,
+      forward_omega, angular_cauchy_coordinates, forward_interpolator, l_max);
+
+  const double max_reference = max(abs(get(volume_j).data()));
+  return max(abs(get(roundtrip_j).data() - get(volume_j).data())) /
+         (max_reference > 0.0 ? max_reference : 1.0);
+}
+
+/// Report `j_inverse_transform_roundtrip_relative_error` for an
+/// `evolve_ccm = true` initial-data generator named `generator_description`.
+inline void report_j_inverse_transform_roundtrip(
+    const std::string_view generator_description,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& volume_j,
+    const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
+        angular_cauchy_coordinates,
+    const tnsr::i<DataVector, 3>& cartesian_cauchy_coordinates,
+    const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
+        angular_inertial_coordinates,
+    const tnsr::i<DataVector, 3>& cartesian_inertial_coordinates,
+    const size_t l_max) {
+  const double roundtrip_relative_error =
+      j_inverse_transform_roundtrip_relative_error(
+          volume_j, angular_cauchy_coordinates, cartesian_cauchy_coordinates,
+          angular_inertial_coordinates, cartesian_inertial_coordinates, l_max);
+  Parallel::printf(
+      "%s CCM inverse angular-coordinate solve: relative error of the J round "
+      "trip (inverse then forward transform) is %e.\n",
+      std::string{generator_description}.c_str(), roundtrip_relative_error);
+}
+}  // namespace detail
 
 /// \cond
 template <bool evolve_ccm>

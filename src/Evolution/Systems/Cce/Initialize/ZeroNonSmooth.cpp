@@ -119,7 +119,9 @@ void ZeroNonSmooth<false>::operator()(
   detail::iteratively_adapt_angular_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
       angular_coordinate_tolerance_, max_iterations_, 1.0e-2,
-      iteration_function, require_convergence_);
+      iteration_function, require_convergence_,
+      "iterative angular-coordinate solve for the initial-data J (Cauchy "
+      "surface coordinates)");
 }
 
 void ZeroNonSmooth<false>::pup(PUP::er& p) {
@@ -252,7 +254,10 @@ void ZeroNonSmooth<true>::operator()(
   detail::iteratively_adapt_angular_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
       angular_coordinate_tolerance_, max_iterations_, 1.0e-2,
-      iteration_function, require_convergence_, finalize_function);
+      iteration_function, require_convergence_,
+      "iterative angular-coordinate solve for the initial-data J (Cauchy "
+      "surface coordinates)",
+      finalize_function);
 
   // Solve for the inertial (partially flat) coordinates that invert the Cauchy
   // angular transformation, driving the inverse-solve Jacobians toward the
@@ -262,6 +267,11 @@ void ZeroNonSmooth<true>::operator()(
       cartesian_inertial_coordinates, angular_inertial_coordinates,
       target_c_inv, target_d_inv, l_max, angular_coordinate_tolerance_,
       max_iterations_, 1.0e-2, require_convergence_);
+
+  detail::report_j_inverse_transform_roundtrip(
+      "ZeroNonSmooth", *j, *angular_cauchy_coordinates,
+      *cartesian_cauchy_coordinates, *angular_inertial_coordinates,
+      *cartesian_inertial_coordinates, l_max);
 }
 
 void ZeroNonSmooth<true>::pup(PUP::er& p) {

@@ -198,7 +198,10 @@ void cauchy_second_order_apply_impl(
   detail::iteratively_adapt_angular_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
       angular_coordinate_tolerance, max_iterations, max_angular_solve_error,
-      iteration_function, require_convergence, finalize_function);
+      iteration_function, require_convergence,
+      "iterative angular-coordinate solve for the initial-data J (Cauchy "
+      "surface coordinates)",
+      finalize_function);
 
   // Safeguard: the second-order construction forces the second radial
   // derivative of J to vanish at scri+, and the angular gauge transform only
@@ -347,6 +350,15 @@ void CauchySecondOrder<true>::operator()(
       cartesian_inertial_coordinates, angular_inertial_coordinates,
       target_c_inv, target_d_inv, l_max, angular_coordinate_tolerance_,
       max_iterations_, 1.0e-2, require_convergence_);
+
+  // Physically meaningful check on the inverse solve: round-trip the volume J
+  // through the inverse and forward angular transformations and report the
+  // relative error, which (unlike the raw Jacobian residual) is directly
+  // interpretable.
+  detail::report_j_inverse_transform_roundtrip(
+      "CauchySecondOrder", *j, *angular_cauchy_coordinates,
+      *cartesian_cauchy_coordinates, *angular_inertial_coordinates,
+      *cartesian_inertial_coordinates, l_max);
 }
 
 void CauchySecondOrder<true>::pup(PUP::er& p) {
