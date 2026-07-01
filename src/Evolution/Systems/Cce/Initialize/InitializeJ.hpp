@@ -282,9 +282,12 @@ double adjust_angular_coordinates_for_j(
  * target inverse Jacobians `(target_c_inv, target_d_inv)` that the inertial
  * (PartiallyFlat) angular solve must reproduce.
  *
- * \details This is the single place the inverse-transformation physics lives;
- * the body currently holds a leading-order placeholder to be replaced with the
- * exact relation. See the definition in `InitializeJ.cpp`.
+ * \details This is the single place the inverse-transformation physics lives.
+ * The body encodes the exact inverse-Jacobian relation (Moxon2020 Eq. 4.18),
+ * \f$c_{\mathrm{inv}} = -c / \omega^2\f$ and
+ * \f$d_{\mathrm{inv}} = \bar d / \omega^2\f$ with
+ * \f$\omega^2 = (1/4)(d \bar d - c \bar c)\f$. See the definition in
+ * `InitializeJ.cpp`.
  */
 void compute_inverse_jacobian_target(
     gsl::not_null<SpinWeighted<ComplexDataVector, 2>*> target_c_inv,
