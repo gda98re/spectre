@@ -288,25 +288,16 @@ void test_initialize_j_no_radiation(
   }
 }
 
+// Validate the inverse angular-coordinate solve shared by all `evolve_ccm =
+// true` generators. After a generator has populated both the Cauchy and the
+// inertial ("partially flat") coordinates, the two coordinate maps must satisfy
+// the exact inverse-Jacobian relation (Moxon2020 Eq. 4.18),
+//   c_inv = -c / omega^2,   d_inv = conj(d) / omega^2,
+// with the forward conformal factor omega^2 = (1/4)(d conj(d) - c conj(c)).
 template <typename DbTags>
-void test_initialize_j_no_radiation_ccm(
+void check_ccm_inverse_jacobian(
     const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
-    const size_t l_max, const size_t /*number_of_radial_points*/) {
-  // Validate the inverse angular-coordinate solve used when the partially flat
-  // Bondi-like coordinates are evolved (`evolve_ccm = true`). The
-  // `NoIncomingRadiation<true>` generator runs the forward (Cauchy) angular
-  // solve and then a second solve for the inertial ("partially flat")
-  // coordinates that invert it. The two coordinate maps must satisfy the exact
-  // inverse-Jacobian relation (Moxon2020 Eq. 4.18),
-  //   c_inv = -c / omega^2,   d_inv = conj(d) / omega^2,
-  // with the forward conformal factor omega^2 = (1/4)(d conj(d) - c conj(c)).
-  const double tolerance = 1.0e-8;
-  auto node_lock = Parallel::NodeLock{};
-  db::mutate_apply<InitializeJ::InitializeJ<true>::mutate_tags,
-                   InitializeJ::InitializeJ<true>::argument_tags>(
-      InitializeJ::NoIncomingRadiation<true>{tolerance, 400}, box_to_initialize,
-      make_not_null(&node_lock));
-
+    const size_t l_max, const double tolerance) {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
 
@@ -357,6 +348,41 @@ void test_initialize_j_no_radiation_ccm(
                                inversion_approx);
   CHECK_ITERABLE_CUSTOM_APPROX(get(inverse_d).data(), target_d_inv,
                                inversion_approx);
+}
+
+template <typename DbTags>
+void test_initialize_j_no_radiation_ccm(
+    const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
+    const size_t l_max, const size_t /*number_of_radial_points*/) {
+  // The `NoIncomingRadiation<true>` generator runs the forward (Cauchy) angular
+  // solve and then the shared inverse solve for the inertial coordinates.
+  const double tolerance = 1.0e-8;
+  auto node_lock = Parallel::NodeLock{};
+  db::mutate_apply<InitializeJ::InitializeJ<true>::mutate_tags,
+                   InitializeJ::InitializeJ<true>::argument_tags>(
+      InitializeJ::NoIncomingRadiation<true>{tolerance, 400}, box_to_initialize,
+      make_not_null(&node_lock));
+  check_ccm_inverse_jacobian(box_to_initialize, l_max, tolerance);
+}
+
+template <typename DbTags>
+void test_initialize_j_conformal_factor_ccm(
+    const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
+    const size_t l_max, const size_t /*number_of_radial_points*/) {
+  // The `ConformalFactor<true>` generator runs the same forward
+  // conformal-factor solve as `ConformalFactor<false>` and then the shared
+  // inverse solve for the inertial coordinates.
+  const double tolerance = 1.0e-8;
+  auto node_lock = Parallel::NodeLock{};
+  db::mutate_apply<InitializeJ::InitializeJ<true>::mutate_tags,
+                   InitializeJ::InitializeJ<true>::argument_tags>(
+      InitializeJ::ConformalFactor<true>{
+          tolerance, 400, false, false, true,
+          ::Cce::InitializeJ::ConformalFactorIterationHeuristic::
+              SpinWeight1CoordPerturbation,
+          false, std::vector<std::complex<double>>{}},
+      box_to_initialize, make_not_null(&node_lock));
+  check_ccm_inverse_jacobian(box_to_initialize, l_max, tolerance);
 }
 
 template <typename DbTags>
@@ -483,7 +509,7 @@ void test_initialize_j_conformal_factor(
   CAPTURE(use_input_modes);
   CAPTURE(read_modes_from_file);
   auto node_lock = Parallel::NodeLock{};
-  InitializeJ::ConformalFactor initialize_j_conformal_factor;
+  InitializeJ::ConformalFactor<false> initialize_j_conformal_factor;
   MAKE_GENERATOR(generator);
   UniformCustomDistribution<double> dist(1.0e-4, 1.0e-3);
   const std::string filename = "ConformalFactorInputModes.h5";
@@ -524,7 +550,7 @@ void test_initialize_j_conformal_factor(
     }
   }
   if (read_modes_from_file) {
-    InitializeJ::ConformalFactor initialize_j_constructed{
+    InitializeJ::ConformalFactor<false> initialize_j_constructed{
         1.0e-8,
         400,
         true,
@@ -536,7 +562,7 @@ void test_initialize_j_conformal_factor(
     initialize_j_conformal_factor =
         serialize_and_deserialize(initialize_j_constructed);
   } else {
-    InitializeJ::ConformalFactor initialize_j_constructed{
+    InitializeJ::ConformalFactor<false> initialize_j_constructed{
         1.0e-8,
         400,
         true,
@@ -547,7 +573,7 @@ void test_initialize_j_conformal_factor(
         input_modes};
     const auto initialize_j_cloned = initialize_j_constructed.get_clone();
     initialize_j_conformal_factor =
-        *dynamic_cast<::Cce::InitializeJ::ConformalFactor*>(
+        *dynamic_cast<::Cce::InitializeJ::ConformalFactor<false>*>(
             initialize_j_cloned.get());
   }
 
@@ -843,6 +869,11 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
     INFO("Check no incoming radiation CCM inverse angular solve");
     test_initialize_j_no_radiation_ccm(make_not_null(&box_to_initialize), l_max,
                                        number_of_radial_points);
+  }
+  {
+    INFO("Check conformal factor CCM inverse angular solve");
+    test_initialize_j_conformal_factor_ccm(make_not_null(&box_to_initialize),
+                                           l_max, number_of_radial_points);
   }
   {
     INFO("Check conformal factor initial data generator");

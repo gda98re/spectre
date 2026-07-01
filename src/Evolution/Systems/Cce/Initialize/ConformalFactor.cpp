@@ -99,58 +99,36 @@ void only_vary_gauge_d_heuristic(
 }
 }  // namespace
 
-ConformalFactor::ConformalFactor(CkMigrateMessage* msg)
-    : InitializeJ<false>(msg) {}
-
-ConformalFactor::ConformalFactor(
-    const double angular_coordinate_tolerance, const size_t max_iterations,
-    const bool require_convergence, const bool optimize_l_0_mode,
-    const bool use_beta_integral_estimate,
-    const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
-        iteration_heuristic,
-    const bool use_input_modes, std::string input_mode_filename)
-    : angular_coordinate_tolerance_{angular_coordinate_tolerance},
-      max_iterations_{max_iterations},
-      require_convergence_{require_convergence},
-      optimize_l_0_mode_{optimize_l_0_mode},
-      use_beta_integral_estimate_{use_beta_integral_estimate},
-      iteration_heuristic_{iteration_heuristic},
-      use_input_modes_{use_input_modes},
-      input_mode_filename_{std::move(input_mode_filename)} {}
-
-ConformalFactor::ConformalFactor(
+namespace {
+// Shared Cauchy-coordinate solve and volume-J construction used by both
+// `ConformalFactor<false>` and `ConformalFactor<true>`. The converged forward
+// gauge Jacobians are written to `converged_gauge_c` and `converged_gauge_d` so
+// the `evolve_ccm = true` specialization can build the inverse-Jacobian target
+// for the inertial (partially flat) coordinate solve.
+void conformal_factor_apply_impl(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_cauchy_coordinates,
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+        converged_gauge_c,
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
+        converged_gauge_d,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta, const size_t l_max,
+    const size_t number_of_radial_points,
+    const gsl::not_null<Parallel::NodeLock*> hdf5_lock,
     const double angular_coordinate_tolerance, const size_t max_iterations,
     const bool require_convergence, const bool optimize_l_0_mode,
     const bool use_beta_integral_estimate,
     const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
         iteration_heuristic,
     const bool use_input_modes,
-    std::vector<std::complex<double>> input_modes)
-    : angular_coordinate_tolerance_{angular_coordinate_tolerance},
-      max_iterations_{max_iterations},
-      require_convergence_{require_convergence},
-      optimize_l_0_mode_{optimize_l_0_mode},
-      use_beta_integral_estimate_{use_beta_integral_estimate},
-      iteration_heuristic_{iteration_heuristic},
-      use_input_modes_{use_input_modes},
-      input_modes_{std::move(input_modes)} {}
-
-std::unique_ptr<InitializeJ<false>> ConformalFactor::get_clone() const {
-  return std::make_unique<ConformalFactor>(*this);
-}
-
-void ConformalFactor::operator()(
-    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
-    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
-    const gsl::not_null<
-        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
-        angular_cauchy_coordinates,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
-    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
-    const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
-    const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta, const size_t l_max,
-    const size_t number_of_radial_points,
-    const gsl::not_null<Parallel::NodeLock*> hdf5_lock) const {
+    const std::vector<std::complex<double>>& input_modes,
+    const std::optional<std::string>& input_mode_filename) {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
 
@@ -196,18 +174,18 @@ void ConformalFactor::operator()(
       get(get<::Tags::ModalTempSpinWeightedScalar<1, 0>>(modal_buffers));
 
   SpinWeighted<ComplexModalVector, 2> goldberg_modes{square(l_max + 1)};
-  if (use_input_modes_) {
-    if (input_mode_filename_.has_value()) {
+  if (use_input_modes) {
+    if (input_mode_filename.has_value()) {
       const std::lock_guard hold_lock(*hdf5_lock);
       read_modes_from_input_file(make_not_null(&(goldberg_modes.data())),
-                                 input_mode_filename_.value());
+                                 input_mode_filename.value());
     } else {
-      ASSERT(input_modes_.size() <= goldberg_modes.size(),
+      ASSERT(input_modes.size() <= goldberg_modes.size(),
              "The size of the input modes is too large. Specify at most  "
              "(l_max + 1)^2 modes in the input file.");
       std::fill(goldberg_modes.data().begin(), goldberg_modes.data().end(),
                 0.0);
-      std::copy(input_modes_.begin(), input_modes_.end(),
+      std::copy(input_modes.begin(), input_modes.end(),
                 goldberg_modes.data().begin());
     }
     Spectral::Swsh::goldberg_to_libsharp_modes(
@@ -255,7 +233,7 @@ void ConformalFactor::operator()(
   // \int dy \partial_y \beta \approx -1/16 ln(1 + 4.0 * j jbar)
 
   target_omega.data() = exp(2.0 * get(beta).data());
-  if (not use_input_modes_ and use_beta_integral_estimate_) {
+  if (not use_input_modes and use_beta_integral_estimate) {
     // use buffer for the (1-y) coefficient that we'd generate in the original
     // gauge.
     get(surface_j_buffer) = 0.25 * (3.0 * get(boundary_j).data() +
@@ -273,11 +251,11 @@ void ConformalFactor::operator()(
       const SpinWeighted<ComplexDataVector, 0>&,
       const SpinWeighted<ComplexDataVector, 2>&,
       const SpinWeighted<ComplexDataVector, 0>&, size_t) = nullptr;
-  if (iteration_heuristic_ ==
+  if (iteration_heuristic ==
       ::Cce::InitializeJ::ConformalFactorIterationHeuristic::
           SpinWeight1CoordPerturbation) {
     iteration_heuristic_function = &spin_weight_1_coord_perturbation_heuristic;
-  } else if (iteration_heuristic_ ==
+  } else if (iteration_heuristic ==
              ::Cce::InitializeJ::ConformalFactorIterationHeuristic::
                  OnlyVaryGaugeD) {
     iteration_heuristic_function = &only_vary_gauge_d_heuristic;
@@ -291,20 +269,21 @@ void ConformalFactor::operator()(
       [&iteration_heuristic_function, &filtered_gauge_omega, &gauge_omega,
        &target_omega, &interpolated_target_gauge_omega,
        &gauge_omega_transform_buffer, &l_max, &surface_r_buffer,
-       &input_j_buffer, &r,
-       this](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
-                 gauge_c_step,
-             const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
-                 gauge_d_step,
-             const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
-             const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
-             const Spectral::Swsh::SwshInterpolator& iteration_interpolator) {
+       &input_j_buffer, &r, use_input_modes, use_beta_integral_estimate,
+       optimize_l_0_mode](
+          const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+              gauge_c_step,
+          const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 0>>*>
+              gauge_d_step,
+          const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+          const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+          const Spectral::Swsh::SwshInterpolator& iteration_interpolator) {
         get(gauge_omega).data() =
             0.5 * sqrt(get(gauge_d).data() * conj(get(gauge_d).data()) -
                        get(gauge_c).data() * conj(get(gauge_c).data()));
         iteration_interpolator.interpolate(
             make_not_null(&interpolated_target_gauge_omega), target_omega);
-        if (use_input_modes_ and use_beta_integral_estimate_) {
+        if (use_input_modes and use_beta_integral_estimate) {
           // when using input modes, the `input_j_buffer` stores the
           // 1/r part of J in the evolution gauge
           iteration_interpolator.interpolate(
@@ -316,7 +295,7 @@ void ConformalFactor::operator()(
               0.125);
         }
         filtered_gauge_omega = get(gauge_omega);
-        if (not optimize_l_0_mode_) {
+        if (not optimize_l_0_mode) {
           Spectral::Swsh::filter_swsh_boundary_quantity(
               make_not_null(&filtered_gauge_omega), l_max, 1_st, l_max,
               make_not_null(&gauge_omega_transform_buffer));
@@ -336,12 +315,13 @@ void ConformalFactor::operator()(
 
   auto finalize_function =
       [&gauge_omega, &l_max, &surface_dr_j_buffer, &boundary_dr_j, &boundary_j,
-       &surface_j_buffer, &surface_r_buffer,
-       &r](const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
-           const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
-           const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
-           /*angular_cauchy_coordinates*/,
-           const Spectral::Swsh::SwshInterpolator& interpolator) {
+       &surface_j_buffer, &surface_r_buffer, &r, &converged_gauge_c,
+       &converged_gauge_d](
+          const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+          const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+          const tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>&
+          /*angular_cauchy_coordinates*/,
+          const Spectral::Swsh::SwshInterpolator& interpolator) {
         get(gauge_omega).data() =
             0.5 * sqrt(get(gauge_d).data() * conj(get(gauge_d).data()) -
                        get(gauge_c).data() * conj(get(gauge_c).data()));
@@ -353,18 +333,22 @@ void ConformalFactor::operator()(
             gauge_omega, interpolator);
         GaugeAdjustedBoundaryValue<Tags::BondiR>::apply(
             make_not_null(&surface_r_buffer), r, gauge_omega, interpolator);
+        // Store the converged forward gauge Jacobians so an `evolve_ccm = true`
+        // caller can build the inverse-Jacobian target.
+        get(*converged_gauge_c) = get(gauge_c);
+        get(*converged_gauge_d) = get(gauge_d);
       };
 
   detail::iteratively_adapt_angular_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
-      angular_coordinate_tolerance_, max_iterations_, 1.0e-2,
-      iteration_function, require_convergence_, finalize_function);
+      angular_coordinate_tolerance, max_iterations, 1.0e-2, iteration_function,
+      require_convergence, finalize_function);
 
   const DataVector one_minus_y_collocation =
       1.0 - Spectral::collocation_points<Spectral::Basis::Legendre,
                                          Spectral::Quadrature::GaussLobatto>(
                 number_of_radial_points);
-  if (not use_input_modes_) {
+  if (not use_input_modes) {
     one_minus_y_coefficient =
         0.25 * (3.0 * get(surface_j_buffer) +
                 get(surface_r_buffer) * get(surface_dr_j_buffer));
@@ -404,8 +388,72 @@ void ConformalFactor::operator()(
     }
   }
 }
+}  // namespace
 
-void ConformalFactor::pup(PUP::er& p) {
+ConformalFactor<false>::ConformalFactor(CkMigrateMessage* msg)
+    : InitializeJ<false>(msg) {}
+
+ConformalFactor<false>::ConformalFactor(
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const bool optimize_l_0_mode,
+    const bool use_beta_integral_estimate,
+    const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
+        iteration_heuristic,
+    const bool use_input_modes, std::string input_mode_filename)
+    : angular_coordinate_tolerance_{angular_coordinate_tolerance},
+      max_iterations_{max_iterations},
+      require_convergence_{require_convergence},
+      optimize_l_0_mode_{optimize_l_0_mode},
+      use_beta_integral_estimate_{use_beta_integral_estimate},
+      iteration_heuristic_{iteration_heuristic},
+      use_input_modes_{use_input_modes},
+      input_mode_filename_{std::move(input_mode_filename)} {}
+
+ConformalFactor<false>::ConformalFactor(
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const bool optimize_l_0_mode,
+    const bool use_beta_integral_estimate,
+    const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
+        iteration_heuristic,
+    const bool use_input_modes, std::vector<std::complex<double>> input_modes)
+    : angular_coordinate_tolerance_{angular_coordinate_tolerance},
+      max_iterations_{max_iterations},
+      require_convergence_{require_convergence},
+      optimize_l_0_mode_{optimize_l_0_mode},
+      use_beta_integral_estimate_{use_beta_integral_estimate},
+      iteration_heuristic_{iteration_heuristic},
+      use_input_modes_{use_input_modes},
+      input_modes_{std::move(input_modes)} {}
+
+std::unique_ptr<InitializeJ<false>> ConformalFactor<false>::get_clone() const {
+  return std::make_unique<ConformalFactor>(*this);
+}
+
+void ConformalFactor<false>::operator()(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_cauchy_coordinates,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta, const size_t l_max,
+    const size_t number_of_radial_points,
+    const gsl::not_null<Parallel::NodeLock*> hdf5_lock) const {
+  Scalar<SpinWeighted<ComplexDataVector, 2>> converged_gauge_c{};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> converged_gauge_d{};
+  conformal_factor_apply_impl(
+      j, cartesian_cauchy_coordinates, angular_cauchy_coordinates,
+      make_not_null(&converged_gauge_c), make_not_null(&converged_gauge_d),
+      boundary_j, boundary_dr_j, r, beta, l_max, number_of_radial_points,
+      hdf5_lock, angular_coordinate_tolerance_, max_iterations_,
+      require_convergence_, optimize_l_0_mode_, use_beta_integral_estimate_,
+      iteration_heuristic_, use_input_modes_, input_modes_,
+      input_mode_filename_);
+}
+
+void ConformalFactor<false>::pup(PUP::er& p) {
   p | angular_coordinate_tolerance_;
   p | max_iterations_;
   p | require_convergence_;
@@ -417,7 +465,105 @@ void ConformalFactor::pup(PUP::er& p) {
   p | input_mode_filename_;
 }
 
-PUP::able::PUP_ID ConformalFactor::my_PUP_ID = 0;
+PUP::able::PUP_ID ConformalFactor<false>::my_PUP_ID = 0;
+
+ConformalFactor<true>::ConformalFactor(CkMigrateMessage* msg)
+    : InitializeJ<true>(msg) {}
+
+ConformalFactor<true>::ConformalFactor(
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const bool optimize_l_0_mode,
+    const bool use_beta_integral_estimate,
+    const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
+        iteration_heuristic,
+    const bool use_input_modes, std::string input_mode_filename)
+    : angular_coordinate_tolerance_{angular_coordinate_tolerance},
+      max_iterations_{max_iterations},
+      require_convergence_{require_convergence},
+      optimize_l_0_mode_{optimize_l_0_mode},
+      use_beta_integral_estimate_{use_beta_integral_estimate},
+      iteration_heuristic_{iteration_heuristic},
+      use_input_modes_{use_input_modes},
+      input_mode_filename_{std::move(input_mode_filename)} {}
+
+ConformalFactor<true>::ConformalFactor(
+    const double angular_coordinate_tolerance, const size_t max_iterations,
+    const bool require_convergence, const bool optimize_l_0_mode,
+    const bool use_beta_integral_estimate,
+    const ::Cce::InitializeJ::ConformalFactorIterationHeuristic
+        iteration_heuristic,
+    const bool use_input_modes, std::vector<std::complex<double>> input_modes)
+    : angular_coordinate_tolerance_{angular_coordinate_tolerance},
+      max_iterations_{max_iterations},
+      require_convergence_{require_convergence},
+      optimize_l_0_mode_{optimize_l_0_mode},
+      use_beta_integral_estimate_{use_beta_integral_estimate},
+      iteration_heuristic_{iteration_heuristic},
+      use_input_modes_{use_input_modes},
+      input_modes_{std::move(input_modes)} {}
+
+std::unique_ptr<InitializeJ<true>> ConformalFactor<true>::get_clone() const {
+  return std::make_unique<ConformalFactor>(*this);
+}
+
+void ConformalFactor<true>::operator()(
+    const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*> j,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_cauchy_coordinates,
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_inertial_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_inertial_coordinates,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 2>>& boundary_dr_j,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& r,
+    const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta, const size_t l_max,
+    const size_t number_of_radial_points,
+    const gsl::not_null<Parallel::NodeLock*> hdf5_lock) const {
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+  Scalar<SpinWeighted<ComplexDataVector, 2>> converged_gauge_c{
+      number_of_angular_points};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> converged_gauge_d{
+      number_of_angular_points};
+  conformal_factor_apply_impl(
+      j, cartesian_cauchy_coordinates, angular_cauchy_coordinates,
+      make_not_null(&converged_gauge_c), make_not_null(&converged_gauge_d),
+      boundary_j, boundary_dr_j, r, beta, l_max, number_of_radial_points,
+      hdf5_lock, angular_coordinate_tolerance_, max_iterations_,
+      require_convergence_, optimize_l_0_mode_, use_beta_integral_estimate_,
+      iteration_heuristic_, use_input_modes_, input_modes_,
+      input_mode_filename_);
+
+  // Solve for the inertial (partially flat) coordinates that invert the Cauchy
+  // angular transformation, using the same shared inverse solve as the other
+  // `evolve_ccm = true` generators.
+  SpinWeighted<ComplexDataVector, 2> target_c_inv{number_of_angular_points};
+  SpinWeighted<ComplexDataVector, 0> target_d_inv{number_of_angular_points};
+  detail::compute_inverse_jacobian_target(
+      make_not_null(&target_c_inv), make_not_null(&target_d_inv),
+      get(converged_gauge_c), get(converged_gauge_d), l_max);
+  detail::invert_angular_coordinates(
+      cartesian_inertial_coordinates, angular_inertial_coordinates,
+      target_c_inv, target_d_inv, l_max, angular_coordinate_tolerance_,
+      max_iterations_, 1.0e-2, require_convergence_);
+}
+
+void ConformalFactor<true>::pup(PUP::er& p) {
+  p | angular_coordinate_tolerance_;
+  p | max_iterations_;
+  p | require_convergence_;
+  p | optimize_l_0_mode_;
+  p | use_beta_integral_estimate_;
+  p | iteration_heuristic_;
+  p | use_input_modes_;
+  p | input_modes_;
+  p | input_mode_filename_;
+}
+
+PUP::able::PUP_ID ConformalFactor<true>::my_PUP_ID = 0;
 std::ostream& operator<<(
     std::ostream& os,
     const Cce::InitializeJ::ConformalFactorIterationHeuristic& heuristic_type) {

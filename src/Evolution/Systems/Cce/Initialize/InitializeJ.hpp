@@ -407,6 +407,7 @@ template <bool evolve_ccm>
 struct InverseCubic;
 template <bool evolve_ccm>
 struct InitializeJ;
+template <bool evolve_ccm>
 struct ConformalFactor;
 struct CauchySecondOrder;
 /// \endcond
@@ -443,11 +444,12 @@ struct InitializeJ<true> : public PUP::able {
   using argument_tags =
       tmpl::push_back<boundary_tags, Tags::LMax, Tags::NumberOfRadialPoints>;
 
-  // The evolution of inertial coordinates are allowed only when InverseCubic is
-  // used
+  // Generators that additionally produce the inertial (partially flat)
+  // coordinates required when the partially flat Bondi-like coordinates are
+  // evolved (`evolve_ccm = true`).
   using creatable_classes =
       tmpl::list<InverseCubic<true>, NoIncomingRadiation<true>,
-                 ZeroNonSmooth<true>>;
+                 ZeroNonSmooth<true>, ConformalFactor<true>>;
 
   InitializeJ() = default;
   explicit InitializeJ(CkMigrateMessage* /*msg*/) {}
@@ -503,7 +505,7 @@ struct InitializeJ<false> : public PUP::able {
       tmpl::push_back<boundary_tags, Tags::LMax, Tags::NumberOfRadialPoints>;
 
   using creatable_classes =
-      tmpl::list<ConformalFactor, InverseCubic<false>,
+      tmpl::list<ConformalFactor<false>, InverseCubic<false>,
                  NoIncomingRadiation<false>, ZeroNonSmooth<false>,
                  CauchySecondOrder,
                  ::Cce::Solutions::LinearizedBondiSachs_detail::InitializeJ::
