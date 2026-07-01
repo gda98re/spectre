@@ -4,7 +4,6 @@
 #include "Evolution/Systems/Cce/Initialize/ZeroNonSmooth.hpp"
 
 #include <cstddef>
-#include <limits>
 #include <memory>
 #include <string>
 
@@ -256,15 +255,13 @@ void ZeroNonSmooth<true>::operator()(
       iteration_function, require_convergence_, finalize_function);
 
   // Solve for the inertial (partially flat) coordinates that invert the Cauchy
-  // angular transformation. NOTE: while detail::compute_inverse_jacobian_target
-  // holds a placeholder inverse-Jacobian relation, the inverse solve is run
-  // permissively (large error threshold, convergence not required) so it
-  // produces approximate inertial coordinates without aborting; tighten once
-  // the exact relation is supplied.
+  // angular transformation, driving the inverse-solve Jacobians toward the
+  // exact inverse-Jacobian target captured above. This mirrors the forward
+  // solve's contract: the same error threshold and convergence requirement.
   detail::invert_angular_coordinates(
       cartesian_inertial_coordinates, angular_inertial_coordinates,
       target_c_inv, target_d_inv, l_max, angular_coordinate_tolerance_,
-      max_iterations_, std::numeric_limits<double>::max(), false);
+      max_iterations_, 1.0e-2, require_convergence_);
 }
 
 void ZeroNonSmooth<true>::pup(PUP::er& p) {

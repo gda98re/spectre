@@ -289,6 +289,77 @@ void test_initialize_j_no_radiation(
 }
 
 template <typename DbTags>
+void test_initialize_j_no_radiation_ccm(
+    const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
+    const size_t l_max, const size_t /*number_of_radial_points*/) {
+  // Validate the inverse angular-coordinate solve used when the partially flat
+  // Bondi-like coordinates are evolved (`evolve_ccm = true`). The
+  // `NoIncomingRadiation<true>` generator runs the forward (Cauchy) angular
+  // solve and then a second solve for the inertial ("partially flat")
+  // coordinates that invert it. The two coordinate maps must satisfy the exact
+  // inverse-Jacobian relation (Moxon2020 Eq. 4.18),
+  //   c_inv = -c / omega^2,   d_inv = conj(d) / omega^2,
+  // with the forward conformal factor omega^2 = (1/4)(d conj(d) - c conj(c)).
+  const double tolerance = 1.0e-8;
+  auto node_lock = Parallel::NodeLock{};
+  db::mutate_apply<InitializeJ::InitializeJ<true>::mutate_tags,
+                   InitializeJ::InitializeJ<true>::argument_tags>(
+      InitializeJ::NoIncomingRadiation<true>{tolerance, 400}, box_to_initialize,
+      make_not_null(&node_lock));
+
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+
+  // Forward Jacobian factors from the converged Cauchy coordinates.
+  Scalar<SpinWeighted<ComplexDataVector, 2>> forward_c{
+      number_of_angular_points};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> forward_d{
+      number_of_angular_points};
+  GaugeUpdateJacobianFromCoordinates<
+      Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+      Tags::CauchyAngularCoords,
+      Tags::CauchyCartesianCoords>::apply(make_not_null(&forward_c),
+                                          make_not_null(&forward_d),
+                                          db::get<Tags::CauchyAngularCoords>(
+                                              *box_to_initialize),
+                                          db::get<Tags::CauchyCartesianCoords>(
+                                              *box_to_initialize),
+                                          l_max);
+
+  // Inverse Jacobian factors from the solved inertial (partially flat)
+  // coordinates.
+  Scalar<SpinWeighted<ComplexDataVector, 2>> inverse_c{
+      number_of_angular_points};
+  Scalar<SpinWeighted<ComplexDataVector, 0>> inverse_d{
+      number_of_angular_points};
+  GaugeUpdateJacobianFromCoordinates<
+      Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+      Tags::PartiallyFlatAngularCoords, Tags::PartiallyFlatCartesianCoords>::
+      apply(make_not_null(&inverse_c), make_not_null(&inverse_d),
+            db::get<Tags::PartiallyFlatAngularCoords>(*box_to_initialize),
+            db::get<Tags::PartiallyFlatCartesianCoords>(*box_to_initialize),
+            l_max);
+
+  const ComplexDataVector omega_squared =
+      0.25 * (get(forward_d).data() * conj(get(forward_d).data()) -
+              get(forward_c).data() * conj(get(forward_c).data()));
+  const ComplexDataVector target_c_inv = -get(forward_c).data() / omega_squared;
+  const ComplexDataVector target_d_inv =
+      conj(get(forward_d).data()) / omega_squared;
+
+  // The forward and inverse maps differ from the identity only at the (small)
+  // strain scale, so the residual grid mismatch between the two Jacobian sets
+  // is second order in the strain; a tolerance of ~10x the angular solve
+  // tolerance comfortably captures a converged inverse solve.
+  Approx inversion_approx =
+      Approx::custom().epsilon(10.0 * tolerance).scale(1.0);
+  CHECK_ITERABLE_CUSTOM_APPROX(get(inverse_c).data(), target_c_inv,
+                               inversion_approx);
+  CHECK_ITERABLE_CUSTOM_APPROX(get(inverse_d).data(), target_d_inv,
+                               inversion_approx);
+}
+
+template <typename DbTags>
 void test_initialize_j_cauchy_second_order(
     const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize,
     const size_t l_max, const size_t number_of_radial_points) {
@@ -767,6 +838,11 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
     INFO("Check no incoming radiation initial data generator");
     test_initialize_j_no_radiation(make_not_null(&box_to_initialize), l_max,
                                    number_of_radial_points);
+  }
+  {
+    INFO("Check no incoming radiation CCM inverse angular solve");
+    test_initialize_j_no_radiation_ccm(make_not_null(&box_to_initialize), l_max,
+                                       number_of_radial_points);
   }
   {
     INFO("Check conformal factor initial data generator");
