@@ -56,14 +56,22 @@ void jacobian_match_heuristic(
     const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
     const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
     const SpinWeighted<ComplexDataVector, 2>& target_c,
-    const SpinWeighted<ComplexDataVector, 0>& target_d,
     const size_t /*l_max*/) {
-  // Newton-like step driving the current (inverse-solve) Jacobians toward the
-  // interpolated targets. Generalizes the omega-only heuristic used by
-  // ConformalFactor to both spin-weight-2 (c) and spin-weight-0 (d) factors; it
-  // can be refined (damping, filtering) if convergence requires.
+  // Newton-like step for the inverse angular-coordinate solve. The
+  // spin-weight-2 factor is driven toward its target, `\delta c = c_target -
+  // c`, and the spin-weight-0 factor step is *slaved* to it through the same
+  // integrability constraint the forward solve uses, `\delta d = \delta c \bar
+  // c / \bar d`. Driving `c` and `d` independently (toward separately-computed
+  // targets) is not consistent with a genuine coordinate map: the resulting
+  // step has a non-integrable component that lies in the null space of the
+  // coordinate update, so the iteration stalls at a fixed point well short of
+  // the true inverse. Because the Jacobian factors of a coordinate map are not
+  // independent, fixing `c` (which is the exact inverse factor, Moxon2020 Eq.
+  // 4.18) determines `d`, and the iteration converges to the true inverse.
   get(*gauge_c_step).data() = target_c.data() - get(gauge_c).data();
-  get(*gauge_d_step).data() = target_d.data() - get(gauge_d).data();
+  get(*gauge_d_step).data() = get(*gauge_c_step).data() *
+                              conj(get(gauge_c).data()) /
+                              conj(get(gauge_d).data());
 }
 }  // namespace detail
 

@@ -342,7 +342,10 @@ void conformal_factor_apply_impl(
   detail::iteratively_adapt_angular_coordinates(
       cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
       angular_coordinate_tolerance, max_iterations, 1.0e-2, iteration_function,
-      require_convergence, finalize_function);
+      require_convergence,
+      "iterative angular-coordinate solve for the initial-data J (Cauchy "
+      "surface coordinates)",
+      finalize_function);
 
   const DataVector one_minus_y_collocation =
       1.0 - Spectral::collocation_points<Spectral::Basis::Legendre,
@@ -549,6 +552,11 @@ void ConformalFactor<true>::operator()(
       cartesian_inertial_coordinates, angular_inertial_coordinates,
       target_c_inv, target_d_inv, l_max, angular_coordinate_tolerance_,
       max_iterations_, 1.0e-2, require_convergence_);
+
+  detail::report_j_inverse_transform_roundtrip(
+      "ConformalFactor", *j, *angular_cauchy_coordinates,
+      *cartesian_cauchy_coordinates, *angular_inertial_coordinates,
+      *cartesian_inertial_coordinates, l_max);
 }
 
 void ConformalFactor<true>::pup(PUP::er& p) {
