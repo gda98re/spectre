@@ -157,11 +157,13 @@ struct MockElement {
                          Tags::NewmanPenroseRho, Tags::NewmanPenrosePi,
                          Tags::NewmanPenroseNu, Tags::NewmanPenroseMu,
                          Tags::NewmanPenroseLambda,
-                         // The third and fourth radial derivatives of J are
-                         // provided by compute tags in the ObservationBox, not
-                         // stored in the DataBox.
+                         // The third and fourth radial derivatives of J, and
+                         // the third radial derivative of the Cauchy-frame J,
+                         // are provided by compute tags in the ObservationBox,
+                         // not stored in the DataBox.
                          Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
-                         Tags::Dy<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>>>,
+                         Tags::Dy<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>,
+                         Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>>,
           Spectral::Swsh::Tags::Derivative<Tags::BondiBeta,
                                            Spectral::Swsh::Tags::Eth>,
           Spectral::Swsh::Tags::Derivative<Tags::Dy<Tags::BondiBeta>,
