@@ -204,13 +204,31 @@ class ObserveFields : public Event {
   // the `VariablesToObserve` option in that case.
   using cauchy_bondi_j_tags_to_observe =
       tmpl::list<Tags::BondiJCauchyView, Tags::Dy<Tags::BondiJCauchyView>,
-                 Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>;
+                 Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>,
+                 Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>;
+
+  // Angular (worldtube-slice) spin-weighted Jacobian factors of the
+  // partially-flat (evolution) and Cauchy gauges, and the Cartesian coordinate
+  // maps of both gauges. Like the Cauchy-frame J tags, these are present in the
+  // DataBox only when the partially flat Bondi-like coordinates are evolved
+  // (`evolve_ccm = true`), so they are observed conditionally in the call
+  // operator and appear in `available_tags_to_observe` only so they can be
+  // requested via the `VariablesToObserve` option in that case.
+  using angular_gauge_tags_to_observe =
+      tmpl::list<Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+                 Tags::CauchyGaugeC, Tags::CauchyGaugeD>;
+  using cauchy_coordinate_tags_to_observe =
+      tmpl::list<Tags::CauchyCartesianCoords,
+                 Tags::PartiallyFlatCartesianCoords>;
+  using ccm_only_tags_to_observe =
+      tmpl::append<cauchy_bondi_j_tags_to_observe,
+                   angular_gauge_tags_to_observe,
+                   cauchy_coordinate_tags_to_observe>;
 
  public:
-  using available_tags_to_observe =
-      tmpl::push_back<tmpl::append<spin_weighted_tags_to_observe,
-                                   cauchy_bondi_j_tags_to_observe>,
-                      Tags::ComplexInertialRetardedTime, Tags::OneMinusY>;
+  using available_tags_to_observe = tmpl::push_back<
+      tmpl::append<spin_weighted_tags_to_observe, ccm_only_tags_to_observe>,
+      Tags::ComplexInertialRetardedTime, Tags::OneMinusY>;
 
   /// \cond
   explicit ObserveFields(CkMigrateMessage* /*unused*/) {}
@@ -268,7 +286,10 @@ class ObserveFields : public Event {
       // Third and fourth radial derivatives of J, built up from the
       // second derivative already available in the evolution box.
       Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJ>>>,
-      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>>;
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>,
+      // Third radial derivative of the Cauchy-frame J, built from the second
+      // derivative available in the evolution box when evolve_ccm = true.
+      Tags::DyCompute<Tags::Dy<Tags::Dy<Tags::BondiJCauchyView>>>>;
 
   using return_tags = tmpl::list<>;
   using argument_tags = tmpl::list<::Tags::ObservationBox>;
@@ -425,6 +446,105 @@ class ObserveFields : public Event {
                  extents_vector, bases_vector,
                  quadratures_vector}});
       }
+    }
+
+    ////////////////////////////////////////////////////////////
+    // Angular (worldtube-slice) gauge Jacobian factors and Cartesian coordinate
+    // maps of both gauges. These live in the DataBox only when the partially
+    // flat coordinates are evolved (`evolve_ccm = true`); `CauchyGaugeC` is
+    // present exactly in that case, so guard the whole block on it (via
+    // `if constexpr`) so non-CCM executables still compile. Each field is
+    // transformed to Goldberg modes on a single angular slice and written to
+    // its own .vol subfile, following the inertial-retarded-time pattern.
+    if constexpr (not db::detail::has_no_matching_tag_v<
+                      typename std::decay_t<decltype(box)>::tags_list,
+                      Tags::CauchyGaugeC>) {
+      const auto write_angular_modes = [&](const std::string& name,
+                                           std::vector<TensorComponent> comps) {
+        const std::string angular_subfile = subgroup_path_ + "/" + name;
+        const observers::ObservationId angular_observation_id{
+            time, angular_subfile + ".vol"};
+        const std::vector<size_t> angular_extents{{l_max, l_max}};
+        const std::vector<Spectral::Basis> angular_bases{
+            {Spectral::Basis::SphericalHarmonic,
+             Spectral::Basis::SphericalHarmonic}};
+        const std::vector<Spectral::Quadrature> angular_quadratures{
+            {Spectral::Quadrature::Gauss, Spectral::Quadrature::Equiangular}};
+        if (write_synchronously) {
+          Parallel::local_synchronous_action<
+              observers::ThreadedActions::WriteVolumeData>(
+              observer_proxy, cache,
+              Parallel::get<observers::Tags::VolumeFileName>(cache),
+              angular_subfile, angular_observation_id,
+              std::vector<ElementVolumeData>{{name, std::move(comps),
+                                              angular_extents, angular_bases,
+                                              angular_quadratures}});
+        } else {
+          Parallel::threaded_action<
+              observers::ThreadedActions::WriteVolumeData>(
+              observer_proxy,
+              Parallel::get<observers::Tags::VolumeFileName>(cache),
+              angular_subfile, angular_observation_id,
+              std::vector<ElementVolumeData>{{name, std::move(comps),
+                                              angular_extents, angular_bases,
+                                              angular_quadratures}});
+        }
+      };
+
+      // Spin-weighted gauge factors in both gauges.
+      tmpl::for_each<angular_gauge_tags_to_observe>([&](auto tag_v) {
+        using tag = tmpl::type_from<decltype(tag_v)>;
+        constexpr int spin = tag::type::type::spin;
+        const std::string name = detail::name<tag>();
+        if (not variables_to_observe_.contains(name)) {
+          return;
+        }
+        DataVector modes(2 * l_max_plus_one_squared);
+        SpinWeighted<ComplexModalVector, spin> mode_view;
+        mode_view.set_data_ref(
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            reinterpret_cast<std::complex<double>*>(modes.data()),
+            l_max_plus_one_squared);
+        Spectral::Swsh::libsharp_to_goldberg_modes(
+            make_not_null(&mode_view),
+            Spectral::Swsh::swsh_transform(l_max, 1, get(get<tag>(box))),
+            l_max);
+        std::vector<TensorComponent> comps;
+        comps.emplace_back(name, std::move(modes));
+        write_angular_modes(name, std::move(comps));
+      });
+
+      // Cartesian coordinate maps of both gauges (3 real components each,
+      // stored as spin-weight-0 Goldberg modes named <tag>_x/_y/_z).
+      tmpl::for_each<cauchy_coordinate_tags_to_observe>([&](auto tag_v) {
+        using tag = tmpl::type_from<decltype(tag_v)>;
+        const std::string name = detail::name<tag>();
+        if (not variables_to_observe_.contains(name)) {
+          return;
+        }
+        const auto& coords = get<tag>(box);
+        std::vector<TensorComponent> comps;
+        for (size_t i = 0; i < 3; ++i) {
+          SpinWeighted<ComplexDataVector, 0> complex_component{
+              number_of_angular_points};
+          complex_component.data() =
+              std::complex<double>(1.0, 0.0) * coords.get(i);
+          DataVector modes(2 * l_max_plus_one_squared);
+          SpinWeighted<ComplexModalVector, 0> mode_view;
+          mode_view.set_data_ref(
+              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+              reinterpret_cast<std::complex<double>*>(modes.data()),
+              l_max_plus_one_squared);
+          Spectral::Swsh::libsharp_to_goldberg_modes(
+              make_not_null(&mode_view),
+              Spectral::Swsh::swsh_transform(l_max, 1, complex_component),
+              l_max);
+          comps.emplace_back(
+              name + "_" + std::string(1, static_cast<char>('x' + i)),
+              std::move(modes));
+        }
+        write_angular_modes(name, std::move(comps));
+      });
     }
 
     ////////////////////////////////////////////////////////////
