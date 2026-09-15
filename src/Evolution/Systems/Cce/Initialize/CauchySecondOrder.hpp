@@ -29,13 +29,16 @@ namespace Cce::InitializeJ {
  * \details The volume \f$J\f$ is built from the worldtube values of
  * \f$J\f$, \f$\partial_r J\f$, and \f$\partial_y^2 J\f$ computed from the
  * H hypersurface equation. The remaining angular coordinates are determined
- * iteratively to ensure asymptotic flatness. The angular solve can eliminate
- * \f$J\f$ at scri+ only through a well-behaved alteration of the spherical
- * mesh, so it tolerates only a small asymptotic \f$J\f$; the initialization
- * aborts if the asymptotic \f$J\f$ in Cauchy coordinates, or the deviation at
- * any iteration of the solve, exceeds `MaxAngularSolveError`. As a further
- * safeguard, the initialization aborts if the second radial derivative of
- * \f$J\f$ at scri+ of the final solution exceeds `MaxScriSecondDerivative`.
+ * iteratively to ensure asymptotic flatness: a potential solve against the
+ * closed-form Jacobian runs first, and if it bottoms out above
+ * `AngularCoordTolerance` the linearized sweeps continue from the minimum it
+ * reached, within the shared `MaxIterations` budget. The angular solve can
+ * eliminate \f$J\f$ at scri+ only through a well-behaved alteration of the
+ * spherical mesh, so it tolerates only a small asymptotic \f$J\f$; the
+ * initialization aborts if the asymptotic \f$J\f$ in Cauchy coordinates, or the
+ * deviation at any iteration of the solve, exceeds `MaxAngularSolveError`. As a
+ * further safeguard, the initialization aborts if the second radial derivative
+ * of \f$J\f$ at scri+ of the final solution exceeds `MaxScriSecondDerivative`.
  */
 struct CauchySecondOrder : InitializeJ<false> {
   struct AngularCoordinateTolerance {
@@ -51,10 +54,11 @@ struct CauchySecondOrder : InitializeJ<false> {
   struct MaxIterations {
     using type = size_t;
     static constexpr Options::String help = {
-        "Number of linearized inversion iterations."};
+        "Total budget of angular-coordinate iterations, counting both the "
+        "potential passes and the linearized sweeps that may follow them."};
     static type lower_bound() { return 10; }
-    static type upper_bound() { return 1000; }
-    static type suggested_value() { return 300; }
+    static type upper_bound() { return 5000; }
+    static type suggested_value() { return 1500; }
   };
 
   struct RequireConvergence {
