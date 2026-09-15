@@ -440,12 +440,19 @@ void BondiWorldtubeDataManager::populate_boundary_du_dr_j(
         Tags::characteristic_worldtube_boundary_tags<Tags::BoundaryValue>>*>
         boundary_data_variables,
     const double time) const {
+  // This derivative is consumed only by the initial-data generator, so it runs
+  // on `du_dr_j_interpolator_` when one was supplied, independently of the
+  // interpolation order the evolution uses for values.
+  const intrp::SpanInterpolator& du_dr_j_interpolator =
+      du_dr_j_interpolator_ == nullptr ? *interpolator_
+                                       : *du_dr_j_interpolator_;
   // The previous detail::populate_hypersurface_boundary_data call already
   // refreshed time_span_start_ / time_span_end_ for the current target time.
-  // The interpolation sub-window we use for the time derivative must match the
-  // one used for value interpolation above.
+  // The sub-window for the time derivative is taken from that same buffer, so
+  // an interpolator wanting more points than it holds is narrowed to it.
   const auto interpolation_time_span = detail::create_span_for_time_value(
-      time, 0, interpolator_->required_number_of_points_before_and_after(),
+      time, 0,
+      du_dr_j_interpolator.required_number_of_points_before_and_after(),
       time_span_start_, time_span_end_, buffer_updater_->get_time_buffer());
   const size_t interpolation_span_size =
       interpolation_time_span.second - interpolation_time_span.first;
@@ -512,7 +519,7 @@ void BondiWorldtubeDataManager::populate_boundary_du_dr_j(
     for (size_t ti = 0; ti < interpolation_span_size; ++ti) {
       dr_j_at_point[ti] = dr_j_over_time[(ti * number_of_angular_points) + i];
     }
-    du_dr_j[i] = interpolator_->derivative(
+    du_dr_j[i] = du_dr_j_interpolator.derivative(
         gsl::span<const double>(time_points.data(), time_points.size()),
         gsl::span<const std::complex<double>>(dr_j_at_point.data(),
                                               dr_j_at_point.size()),
@@ -523,9 +530,13 @@ void BondiWorldtubeDataManager::populate_boundary_du_dr_j(
 std::unique_ptr<WorldtubeDataManager<
     Tags::characteristic_worldtube_boundary_tags<Tags::BoundaryValue>>>
 BondiWorldtubeDataManager::get_clone() const {
-  return std::make_unique<BondiWorldtubeDataManager>(
+  auto clone = std::make_unique<BondiWorldtubeDataManager>(
       buffer_updater_->get_clone(), l_max_, buffer_depth_,
       interpolator_->get_clone());
+  if (du_dr_j_interpolator_ != nullptr) {
+    clone->set_du_dr_j_interpolator(du_dr_j_interpolator_->get_clone());
+  }
+  return clone;
 }
 
 std::pair<size_t, size_t> BondiWorldtubeDataManager::get_time_span() const {
@@ -539,6 +550,7 @@ void BondiWorldtubeDataManager::pup(PUP::er& p) {
   p | l_max_;
   p | buffer_depth_;
   p | interpolator_;
+  p | du_dr_j_interpolator_;
   if (p.isUnpacking()) {
     detail::set_non_pupped_members<Tags::worldtube_boundary_tags_for_writing<
         Spectral::Swsh::Tags::SwshTransform>>(

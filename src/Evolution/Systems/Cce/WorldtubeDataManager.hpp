@@ -97,6 +97,16 @@ class WorldtubeDataManager : public PUP::able {
   virtual size_t get_l_max() const = 0;
 
   virtual std::pair<size_t, size_t> get_time_span() const = 0;
+
+  /// \brief Use `interpolator` in place of the one supplied at construction
+  /// when building the boundary value of `Du<Dr<BondiJ>>`.
+  ///
+  /// \details That boundary value is consumed only by the initial-data
+  /// generator, which may want a different time-interpolation order from the
+  /// one the evolution runs with. A manager that does not produce it ignores
+  /// this.
+  virtual void set_du_dr_j_interpolator(
+      std::unique_ptr<intrp::SpanInterpolator> /*interpolator*/) {}
 };
 
 /*!
@@ -259,6 +269,18 @@ class BondiWorldtubeDataManager
   /// diagnostics
   std::pair<size_t, size_t> get_time_span() const override;
 
+  /// \brief Use `interpolator` in place of `interpolator_` for the time
+  /// derivative that produces the `Du<Dr<BondiJ>>` boundary value.
+  ///
+  /// \details Passing `nullptr` (the default state) leaves that derivative on
+  /// `interpolator_`. An interpolator that needs a wider stencil than
+  /// `interpolator_` is silently narrowed to the cached buffer window, so this
+  /// is meant for a *lower* order than the evolution runs with.
+  void set_du_dr_j_interpolator(
+      std::unique_ptr<intrp::SpanInterpolator> interpolator) override {
+    du_dr_j_interpolator_ = std::move(interpolator);
+  }
+
   /// Serialization for Charm++.
   void pup(PUP::er& p) override;  // NOLINT
 
@@ -301,6 +323,10 @@ class BondiWorldtubeDataManager
   size_t buffer_depth_ = 0;
 
   std::unique_ptr<intrp::SpanInterpolator> interpolator_;
+
+  // Used instead of `interpolator_` for the `Du<Dr<BondiJ>>` time derivative
+  // when the initial-data generator asks for its own; null otherwise.
+  std::unique_ptr<intrp::SpanInterpolator> du_dr_j_interpolator_;
 };
 
 class KleinGordonWorldtubeDataManager
