@@ -108,7 +108,9 @@ void CauchySecondOrder::operator()(
                  ::Tags::SpinWeighted<::Tags::TempScalar<1, ComplexDataVector>,
                                       std::integral_constant<int, 0>>,
                  ::Tags::SpinWeighted<::Tags::TempScalar<2, ComplexDataVector>,
-                                      std::integral_constant<int, 0>>>>
+                                      std::integral_constant<int, 0>>,
+                 ::Tags::SpinWeighted<::Tags::TempScalar<3, ComplexDataVector>,
+                                      std::integral_constant<int, 2>>>>
       iteration_buffers{number_of_angular_points};
 
   auto& evolution_gauge_surface_j =
@@ -123,7 +125,63 @@ void CauchySecondOrder::operator()(
       get<::Tags::SpinWeighted<::Tags::TempScalar<2, ComplexDataVector>,
                                std::integral_constant<int, 0>>>(
           iteration_buffers);
+  auto& asymptotic_j_hat =
+      get(get<::Tags::SpinWeighted<::Tags::TempScalar<3, ComplexDataVector>,
+                                   std::integral_constant<int, 2>>>(
+          iteration_buffers));
 
+  // The gauge condition Jhat^(0) = 0, Eq. (4.11) of \cite Moxon2020, involves
+  // the Jacobians only through the ratio mu = c / conj(d), for which it is the
+  // quadratic mu^2 conj(J) + 2 mu K + J = 0. Its discriminant collapses exactly
+  // because K^2 - J conj(J) = 1, and of the two roots only
+  // mu = -J / (1 + K) gives omega^2 = (1/4)|d|^2 (1 - |mu|^2) > 0. So the
+  // Jacobian the condition demands is known in closed form, pointwise, with no
+  // linearisation and for any asymptotic shear:
+  //
+  //     c_* = -conj(d) J^(0) / (1 + K^(0)),      |mu| < 1 always.
+  //
+  // This is the form to evaluate: the algebraically equal
+  // conj(d)(1 - K^(0)) / conj(J^(0)) subtracts two numbers agreeing to ten
+  // digits when |J^(0)| ~ 1e-5 and returns six.
+  auto target_function =
+      [&interpolated_k, &gauge_omega, &evolution_gauge_surface_j,
+       &asymptotic_j_hat, &j_at_scri_view](
+          const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+              gauge_c_target,
+          const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+          const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+          const Spectral::Swsh::SwshInterpolator& iteration_interpolator) {
+        iteration_interpolator.interpolate(
+            make_not_null(&evolution_gauge_surface_j), j_at_scri_view);
+        interpolated_k.data() =
+            sqrt(1.0 + evolution_gauge_surface_j.data() *
+                           conj(evolution_gauge_surface_j.data()));
+        get(gauge_omega).data() =
+            0.5 * sqrt(get(gauge_d).data() * conj(get(gauge_d).data()) -
+                       get(gauge_c).data() * conj(get(gauge_c).data()));
+        asymptotic_j_hat.data() =
+            0.25 *
+            (square(conj(get(gauge_d).data())) *
+                 evolution_gauge_surface_j.data() +
+             square(get(gauge_c).data()) *
+                 conj(evolution_gauge_surface_j.data()) +
+             2.0 * get(gauge_c).data() * conj(get(gauge_d).data()) *
+                 interpolated_k.data()) /
+            square(get(gauge_omega).data());
+
+        get(*gauge_c_target).data() = -conj(get(gauge_d).data()) *
+                                      evolution_gauge_surface_j.data() /
+                                      (1.0 + interpolated_k.data());
+        return max(abs(asymptotic_j_hat.data()));
+      };
+
+  // The linearised step this generator used before. It is kept as a fallback:
+  // the potential solve below reaches its resolution-limited plateau in a
+  // handful of passes, and on under-resolved or broadband data that plateau can
+  // sit about an order of magnitude above what the linearised sweeps eventually
+  // grind down to. Running the sweeps afterwards, seeded with the map the fast
+  // solve produced, is therefore never worse than the old behaviour and is
+  // skipped entirely whenever the fast solve already met the tolerance.
   auto iteration_function =
       [&interpolated_k, &gauge_omega, &evolution_gauge_surface_j,
        &j_at_scri_view](
@@ -196,10 +254,45 @@ void CauchySecondOrder::operator()(
            "ConformalFactor initial-data generator instead.");
   }
 
-  detail::iteratively_adapt_angular_coordinates(
-      cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
-      angular_coordinate_tolerance_, max_iterations_, max_angular_solve_error_,
-      iteration_function, require_convergence_, finalize_function);
+  // The potential solve descends to its resolution-limited minimum in two to
+  // four passes and creeps back up afterwards, so it stops at the tolerance, at
+  // that minimum, or at this cap, whichever comes first. The cap only bounds
+  // the cost of the case that plateaus above the tolerance; it never truncates
+  // a solve that is going to converge.
+  const size_t max_potential_passes = std::min(max_iterations_, 20_st);
+  size_t potential_passes = 0;
+  const double potential_residual =
+      detail::adapt_angular_coordinates_via_potential(
+          cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
+          angular_coordinate_tolerance_, max_potential_passes,
+          max_angular_solve_error_, target_function, false,
+          detail::NoOpFinalize{}, true, 0.9, &potential_passes,
+          // whether this stage alone suffices is decided just below, so a
+          // plateau above the tolerance here is not yet worth reporting
+          false);
+
+  if (potential_residual < angular_coordinate_tolerance_) {
+    // rerun the target once on the converged map so the finalize step sees the
+    // same Jacobians the solve ended on
+    detail::adapt_angular_coordinates_via_potential(
+        cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
+        angular_coordinate_tolerance_, 0_st, max_angular_solve_error_,
+        target_function, require_convergence_, finalize_function, false);
+  } else {
+    // The potential solve bottomed out above the tolerance. Continue with the
+    // linearised sweeps seeded with the minimum it reached -- they descend an
+    // order of magnitude further on under-resolved or broadband data, at the
+    // cost of O(10^2) sweeps. `MaxIterations` is the budget for the whole
+    // angular solve, so the passes already spent come out of it.
+    const size_t remaining_iterations = max_iterations_ > potential_passes
+                                            ? max_iterations_ - potential_passes
+                                            : 0_st;
+    detail::iteratively_adapt_angular_coordinates(
+        cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
+        angular_coordinate_tolerance_, remaining_iterations,
+        max_angular_solve_error_, iteration_function, require_convergence_,
+        finalize_function, false);
+  }
 
   // Safeguard: the second-order construction forces the second radial
   // derivative of J to vanish at scri+, and the angular gauge transform only

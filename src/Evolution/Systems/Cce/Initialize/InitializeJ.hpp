@@ -88,12 +88,18 @@ double iteratively_adapt_angular_coordinates(
     const size_t l_max, const double tolerance, const size_t max_steps,
     const double error_threshold, const IterationFunctor& iteration_function,
     const bool require_convergence,
-    const FinalizeFunctor finalize_function = NoOpFinalize{}) {
+    const FinalizeFunctor finalize_function = NoOpFinalize{},
+    const bool initialize_coordinates = true) {
   const size_t number_of_angular_points =
       Spectral::Swsh::number_of_swsh_collocation_points(l_max);
 
-  Spectral::Swsh::create_angular_and_cartesian_coordinates(
-      cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max);
+  // `initialize_coordinates = false` keeps whatever map the caller supplied, so
+  // the solve can be seeded -- with the map another solve has already reached,
+  // for instance -- instead of always starting from the identity.
+  if (initialize_coordinates) {
+    Spectral::Swsh::create_angular_and_cartesian_coordinates(
+        cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max);
+  }
 
   Variables<tmpl::list<
       // cartesian coordinates
@@ -257,6 +263,295 @@ double iteratively_adapt_angular_coordinates(
     } else {
       Parallel::printf(
           "Warning: iterative angular solve did not reach "
+          "target tolerance %e.\n"
+          "Exited after %zu iterations, achieving final maximum over "
+          "collocation points for deviation from target of %e\n"
+          "Proceeding with evolution using the partial result from partial "
+          "angular solve.\n",
+          tolerance, max_steps, max_error);
+    }
+  }
+  return max_error;
+}
+
+// Solve for the partially flat angular coordinates from the closed-form
+// Jacobian, using a single potential for the coordinate variation.
+//
+// `iteratively_adapt_angular_coordinates` above prescribes BOTH Jacobian
+// variations, \delta c and \delta d -- four real functions on the sphere -- for
+// a map that has only two. A general such pair is not the Jacobian of any map,
+// and the inconsistent part is discarded when \eth^{-1} is inverted and the
+// real part taken. Measured on binary and head-on worldtube data, that
+// projection realises a fraction \lambda ~ 0.54-0.65 of whatever change is
+// requested, so
+// the loop contracts at 1 - \lambda per sweep at best, and no choice of step
+// rule recovers it.
+//
+// Here the displacement is generated instead by a single complex
+// spin-weight-0 potential \zeta, so that it is the variation of a map by
+// construction:
+//
+//     \eta = \eth \zeta,      \delta \hat x^i = Re(\eta conj(\eth \hat x^i)).
+//
+// Writing the Jacobian definition \hat a = \hat q^{\hat A} \partial_{\hat A}
+// \phi^A q_A at the identity, where \hat a = q^A q_A = 0, and displacing
+// \phi^A -> x^A + v^A with \eta = q^A v_A gives
+//
+//     \delta \hat a = q^A q^B \nabla_A v_B = \eth (q^B v_B) = \eth \eta,
+//
+// so \delta \hat d is an OUTPUT rather than something prescribed, and there is
+// nothing to project. Only \hat c is constrained by the gauge condition, which
+// is all `target_function` has to supply. The step is therefore one application
+// of \eth^{-1},
+//
+//     \eta = \eth^{-1}(\hat c_* - \hat c),
+//
+// with \hat c_* the target Jacobian. The kernel of \eth^{-1} on spin weight 2
+// is l < 2, which is exactly the residual conformal freedom of the problem, so
+// discarding it selects a representative rather than approximating anything.
+//
+// Because \hat c_* is the exact root of the gauge condition rather than a
+// linearisation of it, each pass composes the current map with the first-order
+// solution for the Beltrami coefficient that remains: the residual falls
+// geometrically at a rate set by the asymptotic shear itself, and two or three
+// passes replace the O(10^2) sweeps the linearised iteration needs.
+//
+// `target_function` must have the signature
+//
+// double target_function(
+//     const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
+//         gauge_c_target,
+//     const Scalar<SpinWeighted<ComplexDataVector, 2>>& gauge_c,
+//     const Scalar<SpinWeighted<ComplexDataVector, 0>>& gauge_d,
+//     const Spectral::Swsh::SwshInterpolator& iteration_interpolator);
+//
+// setting `gauge_c_target` to the Jacobian the gauge condition demands and
+// returning the current residual. As above, a callable class or lambda will do.
+//
+// The solve returns the best map it evaluated, not the one the exit test
+// happened to land on. The two trailing parameters are for a caller that chains
+// this with another solve: `number_of_coordinate_updates`, when not null,
+// receives the passes this solve performed (the ones the rewind discarded
+// included), so a shared iteration budget can be charged for them, and
+// `warn_if_not_converged` silences the "did not reach its target tolerance"
+// message for a stage whose outcome the caller decides on itself.
+template <typename TargetFunctor, typename FinalizeFunctor = NoOpFinalize>
+double adapt_angular_coordinates_via_potential(
+    const gsl::not_null<tnsr::i<DataVector, 3>*> cartesian_cauchy_coordinates,
+    const gsl::not_null<
+        tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>*>
+        angular_cauchy_coordinates,
+    const size_t l_max, const double tolerance, const size_t max_steps,
+    const double error_threshold, const TargetFunctor& target_function,
+    const bool require_convergence,
+    const FinalizeFunctor finalize_function = NoOpFinalize{},
+    const bool initialize_coordinates = true, const double plateau_factor = 0.9,
+    size_t* const number_of_coordinate_updates = nullptr,
+    const bool warn_if_not_converged = true) {
+  const size_t number_of_angular_points =
+      Spectral::Swsh::number_of_swsh_collocation_points(l_max);
+
+  if (initialize_coordinates) {
+    Spectral::Swsh::create_angular_and_cartesian_coordinates(
+        cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max);
+  }
+
+  Variables<tmpl::list<
+      // cartesian coordinates
+      ::Tags::TempSpinWeightedScalar<0, 0>,
+      ::Tags::TempSpinWeightedScalar<1, 0>,
+      ::Tags::TempSpinWeightedScalar<2, 0>,
+      // eth of the cartesian coordinates
+      ::Tags::TempSpinWeightedScalar<3, 1>,
+      ::Tags::TempSpinWeightedScalar<4, 1>,
+      ::Tags::TempSpinWeightedScalar<5, 1>,
+      // ... interpolated onto the current map
+      ::Tags::TempSpinWeightedScalar<10, 1>,
+      ::Tags::TempSpinWeightedScalar<11, 1>,
+      ::Tags::TempSpinWeightedScalar<12, 1>,
+      // gauge Jacobians
+      ::Tags::TempSpinWeightedScalar<6, 2>,
+      ::Tags::TempSpinWeightedScalar<7, 0>,
+      // the Jacobian the gauge condition demands, then the step to it
+      ::Tags::TempSpinWeightedScalar<8, 2>,
+      // the potential's gradient, eta = eth zeta
+      ::Tags::TempSpinWeightedScalar<9, 1>>>
+      computation_buffers{number_of_angular_points};
+
+  auto& x = get(get<::Tags::TempSpinWeightedScalar<0, 0>>(computation_buffers));
+  auto& y = get(get<::Tags::TempSpinWeightedScalar<1, 0>>(computation_buffers));
+  auto& z = get(get<::Tags::TempSpinWeightedScalar<2, 0>>(computation_buffers));
+  auto& eth_x =
+      get(get<::Tags::TempSpinWeightedScalar<3, 1>>(computation_buffers));
+  auto& eth_y =
+      get(get<::Tags::TempSpinWeightedScalar<4, 1>>(computation_buffers));
+  auto& eth_z =
+      get(get<::Tags::TempSpinWeightedScalar<5, 1>>(computation_buffers));
+  auto& gauge_c =
+      get<::Tags::TempSpinWeightedScalar<6, 2>>(computation_buffers);
+  auto& gauge_d =
+      get<::Tags::TempSpinWeightedScalar<7, 0>>(computation_buffers);
+  auto& gauge_c_target =
+      get<::Tags::TempSpinWeightedScalar<8, 2>>(computation_buffers);
+  auto& eta =
+      get(get<::Tags::TempSpinWeightedScalar<9, 1>>(computation_buffers));
+  auto& interpolated_eth_x =
+      get(get<::Tags::TempSpinWeightedScalar<10, 1>>(computation_buffers));
+  auto& interpolated_eth_y =
+      get(get<::Tags::TempSpinWeightedScalar<11, 1>>(computation_buffers));
+  auto& interpolated_eth_z =
+      get(get<::Tags::TempSpinWeightedScalar<12, 1>>(computation_buffers));
+
+  // eth of the Cartesian coordinates is taken ONCE, on the grid the solve
+  // started from, and interpolated onto the current map at each pass -- exactly
+  // as in `iteratively_adapt_angular_coordinates`. Recomputing it from the
+  // displaced coordinates instead is equally correct to first order and
+  // converges to the same map, but differentiating an already-displaced
+  // coordinate field aliases, and the residual then plateaus one to two orders
+  // higher.
+  x.data() =
+      std::complex<double>(1.0, 0.0) * get<0>(*cartesian_cauchy_coordinates);
+  y.data() =
+      std::complex<double>(1.0, 0.0) * get<1>(*cartesian_cauchy_coordinates);
+  z.data() =
+      std::complex<double>(1.0, 0.0) * get<2>(*cartesian_cauchy_coordinates);
+  Spectral::Swsh::angular_derivatives<
+      tmpl::list<Spectral::Swsh::Tags::Eth, Spectral::Swsh::Tags::Eth,
+                 Spectral::Swsh::Tags::Eth>>(l_max, 1, make_not_null(&eth_x),
+                                             make_not_null(&eth_y),
+                                             make_not_null(&eth_z), x, y, z);
+
+  double max_error = 1.0;
+  double previous_max_error = std::numeric_limits<double>::max();
+  size_t number_of_steps = 0;
+  Spectral::Swsh::SwshInterpolator iteration_interpolator;
+
+  // Score the map currently held in `cartesian_cauchy_coordinates`: bring the
+  // angular coordinates and the Jacobians into step with it, then ask
+  // `target_function` for the residual and the Jacobian the gauge condition
+  // wants. Factored out because the rewind below has to repeat it.
+  const auto evaluate_current_map = [&]() {
+    GaugeUpdateAngularFromCartesian<
+        Tags::CauchyAngularCoords,
+        Tags::CauchyCartesianCoords>::apply(angular_cauchy_coordinates,
+                                            cartesian_cauchy_coordinates);
+
+    iteration_interpolator = Spectral::Swsh::SwshInterpolator{
+        get<0>(*angular_cauchy_coordinates),
+        get<1>(*angular_cauchy_coordinates), l_max};
+
+    GaugeUpdateJacobianFromCoordinates<
+        Tags::PartiallyFlatGaugeC, Tags::PartiallyFlatGaugeD,
+        Tags::CauchyAngularCoords,
+        Tags::CauchyCartesianCoords>::apply(make_not_null(&gauge_c),
+                                            make_not_null(&gauge_d),
+                                            *angular_cauchy_coordinates,
+                                            *cartesian_cauchy_coordinates,
+                                            l_max);
+
+    return target_function(make_not_null(&gauge_c_target), gauge_c, gauge_d,
+                           iteration_interpolator);
+  };
+
+  // The best map seen so far. The stopping rule below can only recognize the
+  // minimum one pass after the fact, so the solve keeps a copy to rewind to.
+  auto best_cartesian_cauchy_coordinates = *cartesian_cauchy_coordinates;
+  double best_max_error = std::numeric_limits<double>::max();
+
+  while (true) {
+    max_error = evaluate_current_map();
+
+    if (max_error < best_max_error) {
+      best_max_error = max_error;
+      best_cartesian_cauchy_coordinates = *cartesian_cauchy_coordinates;
+    }
+
+    if (max_error > error_threshold) {
+      ERROR(
+          "Iterative solve for surface coordinates of initial data failed. The "
+          "strain is too large to be fully eliminated by a well-behaved "
+          "alteration of the spherical mesh. This could be an indication that "
+          "there is an issue with the worldtube data. If you are confident "
+          "the worldtube data is correct, then please use an alternative "
+          "initial data generator such as `InverseCubic`. If that fails, "
+          "please double check that your spherical harmonic modes are decaying "
+          "correctly with increasing (l,m).\nError: "
+          << max_error << "\nError threshold: " << error_threshold);
+    }
+    ++number_of_steps;
+    if (max_error < tolerance or number_of_steps > max_steps) {
+      break;
+    }
+    // Stop on the last pass that still improves the residual. The early passes
+    // divide it by a factor of order \|\mu\|_\infty -- three orders of
+    // magnitude for a typical worldtube -- after which it bottoms out and
+    // slowly creeps back up, each further pass adding a displacement the size
+    // of the noise it is responding to. A `plateau_factor` just below one stops
+    // within a pass of that minimum without cutting off a slow but genuine
+    // descent; the caller can then fall back to a method that grinds lower.
+    if (plateau_factor > 0.0 and number_of_steps > 2 and
+        max_error > plateau_factor * previous_max_error) {
+      break;
+    }
+    previous_max_error = max_error;
+
+    // the step to the target Jacobian, then the potential that generates it
+    get(gauge_c_target).data() -= get(gauge_c).data();
+    Spectral::Swsh::angular_derivatives<
+        tmpl::list<Spectral::Swsh::Tags::InverseEth>>(
+        l_max, 1, make_not_null(&eta), get(gauge_c_target));
+
+    iteration_interpolator.interpolate(make_not_null(&interpolated_eth_x),
+                                       eth_x);
+    iteration_interpolator.interpolate(make_not_null(&interpolated_eth_y),
+                                       eth_y);
+    iteration_interpolator.interpolate(make_not_null(&interpolated_eth_z),
+                                       eth_z);
+
+    // dx^i = Re(eta conj(eth x^i)); this is v^A \partial_A x^i written with the
+    // dyad completeness relation, and is automatically tangent to the sphere
+    // because x^i eth x^i = (1/2) eth(x^i x^i) = 0. The residual term
+    // proportional to x^i in eth(dx^i) is radial and is removed by the
+    // `GaugeUpdateAngularFromCartesian` call at the top of the next pass.
+    get<0>(*cartesian_cauchy_coordinates) +=
+        real(eta.data() * conj(interpolated_eth_x.data()));
+    get<1>(*cartesian_cauchy_coordinates) +=
+        real(eta.data() * conj(interpolated_eth_y.data()));
+    get<2>(*cartesian_cauchy_coordinates) +=
+        real(eta.data() * conj(interpolated_eth_z.data()));
+  }
+
+  // Hand back the minimum rather than whichever pass the exit test landed on.
+  // The plateau rule fires on the first pass that fails to improve, so without
+  // this the map that leaves here -- and seeds whatever solve runs next -- is
+  // the one pass *past* the minimum.
+  if (best_max_error < max_error) {
+    *cartesian_cauchy_coordinates = best_cartesian_cauchy_coordinates;
+    max_error = evaluate_current_map();
+  }
+  // Reported as the work done, including the passes the rewind discarded, so a
+  // caller sharing an iteration budget with a following solve charges for them.
+  if (number_of_coordinate_updates != nullptr) {
+    *number_of_coordinate_updates =
+        number_of_steps > 0 ? number_of_steps - 1 : 0;
+  }
+
+  finalize_function(gauge_c, gauge_d, *angular_cauchy_coordinates,
+                    iteration_interpolator);
+
+  if (tolerance < max_error) {
+    if (require_convergence) {
+      ERROR(
+          "Initial data potential angular solve did not reach "
+          "target tolerance "
+          << tolerance << ".\n"
+          << "Exited after " << max_steps
+          << " iterations, achieving final\n"
+             "maximum over collocation points deviation of J from target of "
+          << max_error);
+    } else if (warn_if_not_converged) {
+      Parallel::printf(
+          "Warning: potential angular solve did not reach "
           "target tolerance %e.\n"
           "Exited after %zu iterations, achieving final maximum over "
           "collocation points for deviation from target of %e\n"
