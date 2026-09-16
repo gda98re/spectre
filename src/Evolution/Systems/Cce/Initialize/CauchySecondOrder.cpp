@@ -3,6 +3,7 @@
 
 #include "Evolution/Systems/Cce/Initialize/CauchySecondOrder.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -10,6 +11,7 @@
 
 #include "DataStructures/ComplexDataVector.hpp"
 #include "DataStructures/SpinWeighted.hpp"
+#include "DataStructures/Tags.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/Cce/Initialize/ComputeSecondOrderRadialDerivativeJ.hpp"
 #include "Evolution/Systems/Cce/Initialize/InitializeJ.hpp"
@@ -23,8 +25,45 @@
 #include "Parallel/Printf/Printf.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Literals.hpp"
 
 namespace Cce::InitializeJ {
+
+namespace CauchySecondOrder_detail {
+void check_scri_second_derivative(const double max_scri_dy_dy_j,
+                                  const double expected_scri_dy_dy_j) {
+  const double safety_factor = 100.0;
+  // eps * max|J| * N^4 for the two spectral derivatives, at the resolutions and
+  // strains CCE runs at. It keeps the guard from firing on a worldtube whose
+  // predicted violation is itself below what differentiating the ansatz twice
+  // can resolve.
+  const double round_off_floor = 1.0e-14;
+  const double threshold =
+      safety_factor * (expected_scri_dy_dy_j + round_off_floor);
+  // Printed only when the solve lands within a decade of the threshold, which
+  // is the range in which the number tells the user something. A solve that is
+  // comfortably inside it says nothing worth a line of output per run.
+  if (max_scri_dy_dy_j > 0.1 * threshold) {
+    Parallel::printf(
+        "CauchySecondOrder initial data: the converged solution has a second "
+        "radial derivative of J at scri+ of magnitude %e, against the %e the "
+        "transformation's nonlinear residual predicts (threshold %e).\n",
+        max_scri_dy_dy_j, expected_scri_dy_dy_j, threshold);
+  }
+  if (max_scri_dy_dy_j > threshold) {
+    ERROR(
+        "The initial J has a second radial derivative at scri+ of magnitude "
+        << max_scri_dy_dy_j << ", above the threshold " << threshold
+        << " that the nonlinear residual of the gauge transformation accounts "
+           "for (the residual itself predicts "
+        << expected_scri_dy_dy_j
+        << "). The matched solution is not asymptotically well-behaved. Check "
+           "the worldtube boundary data; if it is correct, the "
+           "`ConformalFactor` initial-data generator does not impose this "
+           "condition.");
+  }
+}
+}  // namespace CauchySecondOrder_detail
 
 CauchySecondOrder::CauchySecondOrder(
     const double angular_coordinate_tolerance, const size_t max_iterations,
@@ -112,33 +151,20 @@ void CauchySecondOrder::operator()(
                   (number_of_radial_points - 1) * number_of_angular_points,
                   number_of_angular_points);
 
-  Variables<
-      tmpl::list<::Tags::SpinWeighted<::Tags::TempScalar<0, ComplexDataVector>,
-                                      std::integral_constant<int, 2>>,
-                 ::Tags::SpinWeighted<::Tags::TempScalar<1, ComplexDataVector>,
-                                      std::integral_constant<int, 0>>,
-                 ::Tags::SpinWeighted<::Tags::TempScalar<2, ComplexDataVector>,
-                                      std::integral_constant<int, 0>>,
-                 ::Tags::SpinWeighted<::Tags::TempScalar<3, ComplexDataVector>,
-                                      std::integral_constant<int, 2>>>>
+  Variables<tmpl::list<::Tags::TempSpinWeightedScalar<0, 2>,
+                       ::Tags::TempSpinWeightedScalar<1, 0>,
+                       ::Tags::TempSpinWeightedScalar<2, 0>,
+                       ::Tags::TempSpinWeightedScalar<3, 2>>>
       iteration_buffers{number_of_angular_points};
 
   auto& evolution_gauge_surface_j =
-      get(get<::Tags::SpinWeighted<::Tags::TempScalar<0, ComplexDataVector>,
-                                   std::integral_constant<int, 2>>>(
-          iteration_buffers));
+      get(get<::Tags::TempSpinWeightedScalar<0, 2>>(iteration_buffers));
   auto& interpolated_k =
-      get(get<::Tags::SpinWeighted<::Tags::TempScalar<1, ComplexDataVector>,
-                                   std::integral_constant<int, 0>>>(
-          iteration_buffers));
+      get(get<::Tags::TempSpinWeightedScalar<1, 0>>(iteration_buffers));
   auto& gauge_omega =
-      get<::Tags::SpinWeighted<::Tags::TempScalar<2, ComplexDataVector>,
-                               std::integral_constant<int, 0>>>(
-          iteration_buffers);
+      get<::Tags::TempSpinWeightedScalar<2, 0>>(iteration_buffers);
   auto& asymptotic_j_hat =
-      get(get<::Tags::SpinWeighted<::Tags::TempScalar<3, ComplexDataVector>,
-                                   std::integral_constant<int, 2>>>(
-          iteration_buffers));
+      get(get<::Tags::TempSpinWeightedScalar<3, 2>>(iteration_buffers));
 
   // The gauge condition Jhat^(0) = 0, Eq. (4.11) of \cite Moxon2020, involves
   // the Jacobians only through the ratio mu = c / conj(d), for which it is the
@@ -153,7 +179,7 @@ void CauchySecondOrder::operator()(
   // This is the form to evaluate: the algebraically equal
   // conj(d)(1 - K^(0)) / conj(J^(0)) subtracts two numbers agreeing to ten
   // digits when |J^(0)| ~ 1e-5 and returns six.
-  auto target_function =
+  const auto target_function =
       [&interpolated_k, &gauge_omega, &evolution_gauge_surface_j,
        &asymptotic_j_hat, &j_at_scri_view](
           const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
@@ -190,9 +216,12 @@ void CauchySecondOrder::operator()(
   // handful of passes, and on under-resolved or broadband data that plateau can
   // sit about an order of magnitude above what the linearised sweeps eventually
   // grind down to. Running the sweeps afterwards, seeded with the map the fast
-  // solve produced, is therefore never worse than the old behaviour and is
-  // skipped entirely whenever the fast solve already met the tolerance.
-  auto iteration_function =
+  // solve produced, therefore picks up where it left off, and is skipped
+  // entirely whenever the fast solve already met the tolerance. The sweeps take
+  // `eth x^i` on the round sphere rather than on the map they are handed, so
+  // seeding them costs none of the resolution they would have had starting from
+  // the round sphere themselves.
+  const auto iteration_function =
       [&interpolated_k, &gauge_omega, &evolution_gauge_surface_j,
        &j_at_scri_view](
           const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
@@ -271,15 +300,22 @@ void CauchySecondOrder::operator()(
   // a solve that is going to converge.
   const size_t max_potential_passes = std::min(max_iterations_, 20_st);
   size_t potential_passes = 0;
+  // Both solves take these as positional flags; naming them keeps the calls
+  // below readable. Whether the potential stage alone suffices is decided just
+  // afterwards, so on its own it neither aborts nor warns on a plateau.
+  const bool from_the_round_sphere = true;
+  const bool from_the_seeded_map = false;
+  const bool decide_convergence_afterwards = false;
+  const bool warn_on_plateau = false;
+  const double plateau_factor = 0.9;
   const double potential_residual =
       detail::adapt_angular_coordinates_via_potential(
           cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
           angular_coordinate_tolerance_, max_potential_passes,
-          max_angular_solve_error_, target_function, false,
-          detail::NoOpFinalize{}, true, 0.9, &potential_passes,
-          // whether this stage alone suffices is decided just below, so a
-          // plateau above the tolerance here is not yet worth reporting
-          false);
+          max_angular_solve_error_, target_function,
+          decide_convergence_afterwards, detail::NoOpFinalize{},
+          from_the_round_sphere, plateau_factor, &potential_passes,
+          warn_on_plateau);
 
   if (potential_residual < angular_coordinate_tolerance_) {
     // rerun the target once on the converged map so the finalize step sees the
@@ -287,7 +323,8 @@ void CauchySecondOrder::operator()(
     detail::adapt_angular_coordinates_via_potential(
         cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
         angular_coordinate_tolerance_, 0_st, max_angular_solve_error_,
-        target_function, require_convergence_, finalize_function, false);
+        target_function, require_convergence_, finalize_function,
+        from_the_seeded_map);
   } else {
     // The potential solve bottomed out above the tolerance. Continue with the
     // linearised sweeps seeded with the minimum it reached -- they descend an
@@ -301,7 +338,7 @@ void CauchySecondOrder::operator()(
         cartesian_cauchy_coordinates, angular_cauchy_coordinates, l_max,
         angular_coordinate_tolerance_, remaining_iterations,
         max_angular_solve_error_, iteration_function, require_convergence_,
-        finalize_function, false);
+        finalize_function, from_the_seeded_map);
   }
 
   // Safeguard: the second-order construction forces the second radial
@@ -346,35 +383,10 @@ void CauchySecondOrder::operator()(
   //
   //     |\partial_y^2 \breve{J}|_{scri+} ~ \|J^{(0)}\| \|B\|^2 .
   //
-  // A solve that lands within `scri_second_derivative_safety_factor` of that is
-  // behaving as the construction says it must; one far above it has matched
-  // something else. The round-off floor keeps the guard from firing on a
-  // worldtube whose predicted violation is itself below what differentiating
-  // the ansatz twice can resolve.
-  const double scri_second_derivative_safety_factor = 100.0;
-  // eps * max|J| * N^4 for the two spectral derivatives, at the resolutions and
-  // strains CCE runs at.
-  const double scri_second_derivative_round_off_floor = 1.0e-14;
-  const double expected_scri_dy_dy_j =
-      max_asymptotic_j * square(max(abs(one_minus_y_coefficient)));
-  const double max_scri_second_derivative =
-      scri_second_derivative_safety_factor *
-      (expected_scri_dy_dy_j + scri_second_derivative_round_off_floor);
-  const double max_scri_dy_dy_j = max(abs(scri_dy_dy_j.data()));
-  Parallel::printf(
-      "CauchySecondOrder initial data: the converged solution has a second "
-      "radial derivative of J at scri+ of magnitude %e, against the %e the "
-      "transformation's nonlinear residual predicts (threshold %e).\n",
-      max_scri_dy_dy_j, expected_scri_dy_dy_j, max_scri_second_derivative);
-  if (max_scri_dy_dy_j > max_scri_second_derivative) {
-    ERROR("The initial J has a second radial derivative at scri+ of magnitude "
-          << max_scri_dy_dy_j << ", more than "
-          << scri_second_derivative_safety_factor << " times the "
-          << expected_scri_dy_dy_j
-          << " that the nonlinear residual of the gauge transformation "
-             "accounts for. The matched solution is not asymptotically "
-             "well-behaved; check the worldtube boundary data.");
-  }
+  // which is what the guard compares against.
+  CauchySecondOrder_detail::check_scri_second_derivative(
+      max(abs(scri_dy_dy_j.data())),
+      max_asymptotic_j * square(max(abs(one_minus_y_coefficient))));
 }
 
 void CauchySecondOrder::pup(PUP::er& p) {

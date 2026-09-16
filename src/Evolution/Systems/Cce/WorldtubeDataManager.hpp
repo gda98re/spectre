@@ -15,6 +15,7 @@
 #include "Evolution/Systems/Cce/WorldtubeBufferUpdater.hpp"
 #include "NumericalAlgorithms/Interpolation/SpanInterpolator.hpp"
 #include "Parallel/NodeLock.hpp"
+#include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
@@ -103,10 +104,21 @@ class WorldtubeDataManager : public PUP::able {
   ///
   /// \details That boundary value is consumed only by the initial-data
   /// generator, which may want a different time-interpolation order from the
-  /// one the evolution runs with. A manager that does not produce it ignores
-  /// this.
+  /// one the evolution runs with. A manager that does not produce
+  /// `Du<Dr<BondiJ>>` at all cannot honor the request, so rather than drop it
+  /// silently the default implementation aborts; `nullptr` (nothing was asked
+  /// for) is always accepted.
   virtual void set_du_dr_j_interpolator(
-      std::unique_ptr<intrp::SpanInterpolator> /*interpolator*/) {}
+      std::unique_ptr<intrp::SpanInterpolator> interpolator) {
+    if (interpolator != nullptr) {
+      ERROR(
+          "A `DuDrJInterpolator` was requested, but this worldtube data "
+          "manager does not produce the `Du<Dr<BondiJ>>` boundary value that "
+          "the option controls, so the request would have no effect. Only the "
+          "Bondi-type worldtube data manager supports it; remove the option or "
+          "supply Bondi-Sachs worldtube data.");
+    }
+  }
 };
 
 /*!
@@ -273,13 +285,13 @@ class BondiWorldtubeDataManager
   /// derivative that produces the `Du<Dr<BondiJ>>` boundary value.
   ///
   /// \details Passing `nullptr` (the default state) leaves that derivative on
-  /// `interpolator_`. An interpolator that needs a wider stencil than
-  /// `interpolator_` is silently narrowed to the cached buffer window, so this
-  /// is meant for a *lower* order than the evolution runs with.
+  /// `interpolator_`. This derivative is taken inside the window the evolution
+  /// already caches, which `interpolator_` sizes, so `interpolator` must not
+  /// need a wider stencil than `interpolator_` does; it is meant for a *lower*
+  /// order than the evolution runs with. A wider one is rejected here rather
+  /// than left to fail deep inside the interpolator.
   void set_du_dr_j_interpolator(
-      std::unique_ptr<intrp::SpanInterpolator> interpolator) override {
-    du_dr_j_interpolator_ = std::move(interpolator);
-  }
+      std::unique_ptr<intrp::SpanInterpolator> interpolator) override;
 
   /// Serialization for Charm++.
   void pup(PUP::er& p) override;  // NOLINT

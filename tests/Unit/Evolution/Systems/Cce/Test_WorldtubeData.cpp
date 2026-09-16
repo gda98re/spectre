@@ -3,8 +3,17 @@
 
 #include "Framework/TestingFramework.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <complex>
 #include <cstddef>
+#include <memory>
+#include <optional>
+#include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include "DataStructures/ComplexDataVector.hpp"
 #include "DataStructures/ComplexModalVector.hpp"
@@ -496,8 +505,8 @@ class SimplePolyBondiBufferUpdater
         Spectral::Swsh::goldberg_mode_index(l_max_, 2_st, 0);
     for (size_t ti = 0; ti < span_size; ++ti) {
       dr_j_buffer[(dr_j_mode_index * span_size) + ti] = std::complex<double>{
-          dr_j_slope_ * pow(time_buffer_[(*time_span_start) + ti],
-                            static_cast<double>(dr_j_power_)),
+          dr_j_slope_ * std::pow(time_buffer_[(*time_span_start) + ti],
+                                 static_cast<double>(dr_j_power_)),
           0.0};
     }
 

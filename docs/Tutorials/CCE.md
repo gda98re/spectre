@@ -528,8 +528,8 @@ in a supported environment is a simple command:
 You may notice at the beginning you get some warnings that look like
 
 ```
-Warning: iterative angular solve did not reach target tolerance 3.000000e-11.
-Exited after 1000 iterations, achieving final maximum over collocation points
+Warning: potential angular solve did not reach target tolerance 5.000000e-12.
+Exited after 17 iterations, achieving final maximum over collocation points
  for deviation from target of 2.073455e-08
 Proceeding with evolution using the partial result from partial angular solve.
 ```
@@ -544,8 +544,8 @@ The `CharacteristicExtract.yaml` that ships with the release instead sets
 condition into a fatal error rather than a warning:
 
 ```
-Initial data iterative angular solve did not reach target tolerance 3e-11.
-Exited after 1000 iterations, achieving final
+Initial data iterative angular solve did not reach target tolerance 5e-12.
+Exited after 1483 iterations, achieving final
 maximum over collocation points deviation of J from target of 5.6e-11
 ```
 
@@ -553,8 +553,27 @@ If you hit this with your own worldtube data, the angular solve has plateaued
 above `AngularCoordTolerance`. That tolerance is empirical rather than
 physical, so raising it to sit just above the plateau is a reasonable fix, as
 is setting `RequireConvergence: False` to fall back to the warning above.
-Raising `MaxIterations` typically does not help: the residual tends to plateau
-rather than creep down, so the extra iterations buy nothing.
+
+`MaxIterations` is the budget for the whole angular solve, shared by the fast
+potential passes and the linearized sweeps that continue from them when the
+potential stage alone falls short. Raising it helps only in the second case;
+where the residual has genuinely plateaued, the extra sweeps buy nothing.
+
+`CauchySecondOrder` also requires a `DuDrJInterpolator`. The second-order match
+needs the worldtube \f$\partial_u \partial_r J\f$, which is built by
+differentiating the worldtube data in time, and it wants a *low* interpolation
+order for it (a barycentric order of 2 to 4) so that high-frequency content of
+the worldtube stays out of the initial data. That is the opposite of what the
+evolution wants for the values it interpolates every step, which is why this is
+a separate option from `H5Interpolator` rather than reusing it. It must not ask
+for a wider stencil than `H5Interpolator` does, since the derivative is taken
+inside the buffer that `H5Interpolator` sizes.
+
+On a successful solve you may also see a line reporting the second radial
+derivative of \f$J\f$ at \f$\mathscr{I}^+\f$ against the value the
+construction predicts. It is printed only when the solve lands within a decade
+of the threshold that aborts initialization, so seeing it at all is a hint to
+check the worldtube data even when the run continues.
 
 After this, you'll likely see some output like
 

@@ -3,9 +3,12 @@
 
 #pragma once
 
+#include <complex>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/SpinWeighted.hpp"
@@ -21,6 +24,7 @@
 #include "Parallel/NodeLock.hpp"
 #include "Parallel/Printf/Printf.hpp"
 #include "Utilities/CallWithDynamicType.hpp"
+#include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
@@ -48,6 +52,39 @@ struct NoOpFinalize {
       /*angular_cauchy_coordinates*/,
       const Spectral::Swsh::SwshInterpolator& /*interpolator*/) const {}
 };
+
+// Both angular solves below end the same way, so they say so in the same words:
+// a solve that must converge and did not is fatal, one that may fall short
+// reports what it reached and carries on, and a stage whose outcome its caller
+// decides on says nothing at all.
+inline void report_angular_solve_residual(const std::string_view solve_name,
+                                          const double tolerance,
+                                          const size_t number_of_iterations,
+                                          const double max_error,
+                                          const bool require_convergence,
+                                          const bool warn_if_not_converged) {
+  if (max_error <= tolerance) {
+    return;
+  }
+  if (require_convergence) {
+    ERROR("Initial data " << solve_name
+                          << " angular solve did not reach target tolerance "
+                          << tolerance << ".\nExited after "
+                          << number_of_iterations
+                          << " iterations, achieving final\nmaximum over "
+                             "collocation points deviation of J from target of "
+                          << max_error);
+  } else if (warn_if_not_converged) {
+    Parallel::printf(
+        "Warning: %s angular solve did not reach target tolerance %e.\n"
+        "Exited after %zu iterations, achieving final maximum over "
+        "collocation points for deviation from target of %e\n"
+        "Proceeding with evolution using the partial result from partial "
+        "angular solve.\n",
+        std::string{solve_name}.c_str(), tolerance, number_of_iterations,
+        max_error);
+  }
+}
 
 // perform an iterative solve for the set of angular coordinates. The iteration
 // callable `iteration_function` must have function signature:
@@ -131,12 +168,26 @@ double iteratively_adapt_angular_coordinates(
   auto& y = get(get<::Tags::TempSpinWeightedScalar<1, 0>>(computation_buffers));
   auto& z = get(get<::Tags::TempSpinWeightedScalar<2, 0>>(computation_buffers));
 
-  x.data() =
-      std::complex<double>(1.0, 0.0) * get<0>(*cartesian_cauchy_coordinates);
-  y.data() =
-      std::complex<double>(1.0, 0.0) * get<1>(*cartesian_cauchy_coordinates);
-  z.data() =
-      std::complex<double>(1.0, 0.0) * get<2>(*cartesian_cauchy_coordinates);
+  // `eth` is the derivative operator of the round sphere, so `eth x^i` is the
+  // round-sphere embedding differentiated once and then interpolated onto the
+  // current map at each pass. It must NOT be computed from
+  // `cartesian_cauchy_coordinates`: when the solve is seeded those are already
+  // displaced, and differentiating them gives the chain-rule-contaminated
+  // `eth(x^i . phi)` instead. Whenever `initialize_coordinates` is true the two
+  // agree, so this only changes the seeded case.
+  tnsr::i<DataVector, 3> round_sphere_cartesian_coordinates{};
+  tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>
+      round_sphere_angular_coordinates{};
+  Spectral::Swsh::create_angular_and_cartesian_coordinates(
+      make_not_null(&round_sphere_cartesian_coordinates),
+      make_not_null(&round_sphere_angular_coordinates), l_max);
+
+  x.data() = std::complex<double>(1.0, 0.0) *
+             get<0>(round_sphere_cartesian_coordinates);
+  y.data() = std::complex<double>(1.0, 0.0) *
+             get<1>(round_sphere_cartesian_coordinates);
+  z.data() = std::complex<double>(1.0, 0.0) *
+             get<2>(round_sphere_cartesian_coordinates);
 
   auto& eth_x =
       get(get<::Tags::TempSpinWeightedScalar<3, 1>>(computation_buffers));
@@ -251,27 +302,13 @@ double iteratively_adapt_angular_coordinates(
   finalize_function(gauge_c, gauge_d, *angular_cauchy_coordinates,
                     iteration_interpolator);
 
-  if (tolerance < max_error) {
-    if (require_convergence) {
-      ERROR(
-          "Initial data iterative angular solve did not reach "
-          "target tolerance "
-          << tolerance << ".\n"
-          << "Exited after " << max_steps
-          << " iterations, achieving final\n"
-             "maximum over collocation points deviation of J from target of "
-          << max_error);
-    } else {
-      Parallel::printf(
-          "Warning: iterative angular solve did not reach "
-          "target tolerance %e.\n"
-          "Exited after %zu iterations, achieving final maximum over "
-          "collocation points for deviation from target of %e\n"
-          "Proceeding with evolution using the partial result from partial "
-          "angular solve.\n",
-          tolerance, max_steps, max_error);
-    }
-  }
+  // The passes this solve actually performed. That is `max_steps` only when the
+  // budget was exhausted; a solve that exits on any other condition must not
+  // claim to have run the whole budget.
+  const size_t number_of_iterations =
+      number_of_steps > 0 ? number_of_steps - 1 : 0;
+  report_angular_solve_residual("iterative", tolerance, number_of_iterations,
+                                max_error, require_convergence, true);
   return max_error;
 }
 
@@ -403,19 +440,26 @@ double adapt_angular_coordinates_via_potential(
   auto& interpolated_eth_z =
       get(get<::Tags::TempSpinWeightedScalar<12, 1>>(computation_buffers));
 
-  // eth of the Cartesian coordinates is taken ONCE, on the grid the solve
-  // started from, and interpolated onto the current map at each pass -- exactly
-  // as in `iteratively_adapt_angular_coordinates`. Recomputing it from the
-  // displaced coordinates instead is equally correct to first order and
-  // converges to the same map, but differentiating an already-displaced
-  // coordinate field aliases, and the residual then plateaus one to two orders
-  // higher.
-  x.data() =
-      std::complex<double>(1.0, 0.0) * get<0>(*cartesian_cauchy_coordinates);
-  y.data() =
-      std::complex<double>(1.0, 0.0) * get<1>(*cartesian_cauchy_coordinates);
-  z.data() =
-      std::complex<double>(1.0, 0.0) * get<2>(*cartesian_cauchy_coordinates);
+  // `eth` is the derivative operator of the round sphere, so `eth x^i` is the
+  // round-sphere embedding differentiated once and then interpolated onto the
+  // current map at each pass. It must NOT be computed from
+  // `cartesian_cauchy_coordinates`: when the solve is seeded those are already
+  // displaced, and differentiating them gives the chain-rule-contaminated
+  // `eth(x^i . phi)` instead. Whenever `initialize_coordinates` is true the two
+  // agree, so this only changes the seeded case.
+  tnsr::i<DataVector, 3> round_sphere_cartesian_coordinates{};
+  tnsr::i<DataVector, 2, ::Frame::Spherical<::Frame::Inertial>>
+      round_sphere_angular_coordinates{};
+  Spectral::Swsh::create_angular_and_cartesian_coordinates(
+      make_not_null(&round_sphere_cartesian_coordinates),
+      make_not_null(&round_sphere_angular_coordinates), l_max);
+
+  x.data() = std::complex<double>(1.0, 0.0) *
+             get<0>(round_sphere_cartesian_coordinates);
+  y.data() = std::complex<double>(1.0, 0.0) *
+             get<1>(round_sphere_cartesian_coordinates);
+  z.data() = std::complex<double>(1.0, 0.0) *
+             get<2>(round_sphere_cartesian_coordinates);
   Spectral::Swsh::angular_derivatives<
       tmpl::list<Spectral::Swsh::Tags::Eth, Spectral::Swsh::Tags::Eth,
                  Spectral::Swsh::Tags::Eth>>(l_max, 1, make_not_null(&eth_x),
@@ -532,35 +576,18 @@ double adapt_angular_coordinates_via_potential(
   }
   // Reported as the work done, including the passes the rewind discarded, so a
   // caller sharing an iteration budget with a following solve charges for them.
+  const size_t number_of_iterations =
+      number_of_steps > 0 ? number_of_steps - 1 : 0;
   if (number_of_coordinate_updates != nullptr) {
-    *number_of_coordinate_updates =
-        number_of_steps > 0 ? number_of_steps - 1 : 0;
+    *number_of_coordinate_updates = number_of_iterations;
   }
 
   finalize_function(gauge_c, gauge_d, *angular_cauchy_coordinates,
                     iteration_interpolator);
 
-  if (tolerance < max_error) {
-    if (require_convergence) {
-      ERROR(
-          "Initial data potential angular solve did not reach "
-          "target tolerance "
-          << tolerance << ".\n"
-          << "Exited after " << max_steps
-          << " iterations, achieving final\n"
-             "maximum over collocation points deviation of J from target of "
-          << max_error);
-    } else if (warn_if_not_converged) {
-      Parallel::printf(
-          "Warning: potential angular solve did not reach "
-          "target tolerance %e.\n"
-          "Exited after %zu iterations, achieving final maximum over "
-          "collocation points for deviation from target of %e\n"
-          "Proceeding with evolution using the partial result from partial "
-          "angular solve.\n",
-          tolerance, max_steps, max_error);
-    }
-  }
+  report_angular_solve_residual("potential", tolerance, number_of_iterations,
+                                max_error, require_convergence,
+                                warn_if_not_converged);
   return max_error;
 }
 
@@ -670,7 +697,9 @@ struct InitializeJ<true> : public PUP::able {
   ///
   /// \details That boundary value is consumed by the initial data alone, so a
   /// generator is free to choose its own time-interpolation order for it
-  /// without affecting the evolution.
+  /// without affecting the evolution. Each call returns a fresh clone, so the
+  /// result is the caller's to keep; call it once and hold the result rather
+  /// than calling it for each property to be inspected.
   virtual std::unique_ptr<intrp::SpanInterpolator> du_dr_j_interpolator()
       const {
     return nullptr;
@@ -741,7 +770,9 @@ struct InitializeJ<false> : public PUP::able {
   ///
   /// \details That boundary value is consumed by the initial data alone, so a
   /// generator is free to choose its own time-interpolation order for it
-  /// without affecting the evolution.
+  /// without affecting the evolution. Each call returns a fresh clone, so the
+  /// result is the caller's to keep; call it once and hold the result rather
+  /// than calling it for each property to be inspected.
   virtual std::unique_ptr<intrp::SpanInterpolator> du_dr_j_interpolator()
       const {
     return nullptr;

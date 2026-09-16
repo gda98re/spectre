@@ -213,19 +213,18 @@ bool MetricWorldtubeDataManager::populate_hypersurface_boundary_data(
       buffer_updater_->get_time_buffer().data() + interpolation_time_span.first,
       interpolation_span_size};
 
-  auto interpolate_from_column = [&time, &time_points, &buffer_span_size,
-                                  &interpolation_time_span,
-                                  &interpolation_span_size,
-                                  this](auto data, const size_t column) {
-    auto interp_val = interpolator_->interpolate(
-        gsl::span<const double>(time_points.data(), time_points.size()),
-        gsl::span<const std::complex<double>>(
-            data + column * buffer_span_size +
-                (interpolation_time_span.first - time_span_start_),
-            interpolation_span_size),
-        time);
-    return interp_val;
-  };
+  auto interpolate_from_column =
+      [&time, &time_points, &buffer_span_size, &interpolation_time_span,
+       &interpolation_span_size, this](auto data, const size_t column) {
+        auto interp_val = interpolator_->interpolate(
+            gsl::span<const double>(time_points.data(), time_points.size()),
+            gsl::span<const std::complex<double>>(
+                data + column * buffer_span_size +
+                    (interpolation_time_span.first - time_span_start_),
+                interpolation_span_size),
+            time);
+        return interp_val;
+      };
 
   // the ComplexModalVectors should be provided from the buffer_updater_ in
   // 'Goldberg' format, so we iterate over modes and convert to libsharp
@@ -448,8 +447,9 @@ void BondiWorldtubeDataManager::populate_boundary_du_dr_j(
                                        : *du_dr_j_interpolator_;
   // The previous detail::populate_hypersurface_boundary_data call already
   // refreshed time_span_start_ / time_span_end_ for the current target time.
-  // The sub-window for the time derivative is taken from that same buffer, so
-  // an interpolator wanting more points than it holds is narrowed to it.
+  // The sub-window for the time derivative is taken from that same buffer.
+  // `set_du_dr_j_interpolator` has already rejected an interpolator that would
+  // want more points than the buffer holds, so the span below is wide enough.
   const auto interpolation_time_span = detail::create_span_for_time_value(
       time, 0,
       du_dr_j_interpolator.required_number_of_points_before_and_after(),
@@ -537,6 +537,30 @@ BondiWorldtubeDataManager::get_clone() const {
     clone->set_du_dr_j_interpolator(du_dr_j_interpolator_->get_clone());
   }
   return clone;
+}
+
+void BondiWorldtubeDataManager::set_du_dr_j_interpolator(
+    std::unique_ptr<intrp::SpanInterpolator> interpolator) {
+  if (interpolator != nullptr) {
+    const size_t required_points =
+        interpolator->required_number_of_points_before_and_after();
+    const size_t available_points =
+        interpolator_->required_number_of_points_before_and_after();
+    if (required_points > available_points) {
+      ERROR(
+          "The `DuDrJInterpolator` of the initial-data generator needs "
+          << required_points
+          << " points before and after the target time, but the worldtube "
+             "buffer is sized by `H5Interpolator`, which needs only "
+          << available_points
+          << ". The time derivative of Dr(J) is taken inside that buffer, so "
+             "`DuDrJInterpolator` must not be of higher order than "
+             "`H5Interpolator`. Lower the order of `DuDrJInterpolator` (2 to 4 "
+             "is what the second-order match wants) or raise the order of "
+             "`H5Interpolator`.");
+    }
+  }
+  du_dr_j_interpolator_ = std::move(interpolator);
 }
 
 std::pair<size_t, size_t> BondiWorldtubeDataManager::get_time_span() const {

@@ -101,13 +101,18 @@ struct InitializeWorldtubeBoundaryBase {
               make_not_null(&box));
         }
       };
-      if constexpr (db::tag_is_retrievable_v<Tags::InitializeJ<false>,
-                                             db::DataBox<DataBoxTagsList>>) {
-        take_interpolator_from(tmpl::type_<Tags::InitializeJ<false>>{});
-      } else if constexpr (db::tag_is_retrievable_v<
-                               Tags::InitializeJ<true>,
-                               db::DataBox<DataBoxTagsList>>) {
-        take_interpolator_from(tmpl::type_<Tags::InitializeJ<true>>{});
+      // Asking which specialization is retrievable would be ambiguous: a
+      // databox can expose both (an analytic boundary uses the
+      // `evolve_ccm = false` generator even in a CCM evolution), and an ordered
+      // fallback would then silently pick one of them. The component's own
+      // generator is the one keyed on `evolve_ccm`, so ask the metavariables
+      // directly. A mock that defines neither keeps `H5Interpolator`.
+      if constexpr (requires { Metavariables::evolve_ccm; }) {
+        using generator_tag = Tags::InitializeJ<Metavariables::evolve_ccm>;
+        if constexpr (db::tag_is_retrievable_v<generator_tag,
+                                               db::DataBox<DataBoxTagsList>>) {
+          take_interpolator_from(tmpl::type_<generator_tag>{});
+        }
       }
     }
 

@@ -44,6 +44,27 @@ namespace Cce::InitializeJ {
  * (Eq. (51b) of the CCE initial-data paper, with \f$B\f$ the \f$(1-y)\f$
  * coefficient of the ansatz).
  */
+namespace CauchySecondOrder_detail {
+/*!
+ * \brief Abort unless the second radial derivative of \f$J\f$ at scri+ is as
+ * small as the second-order construction requires.
+ *
+ * \details The construction drives this derivative to zero, and transforming
+ * the Cauchy-gauge ansatz into the partially flat gauge then reintroduces it
+ * only through the nonlinear residual of the transformation, Eq. (51b) of the
+ * CCE initial-data paper. In the numerical radial coordinate that residual is
+ * \f$\|J^{(0)}\|\,\|B\|^2\f$, with \f$B\f$ the \f$(1-y)\f$ coefficient of
+ * the ansatz, which is what `expected_scri_dy_dy_j` must be passed. A solve
+ * landing within a factor of 100 of that (plus a round-off floor for the noise
+ * of differentiating the ansatz twice) is behaving as the construction says it
+ * must; one far above it has matched something else.
+ *
+ * Exposed here so the threshold can be exercised directly by the tests.
+ */
+void check_scri_second_derivative(double max_scri_dy_dy_j,
+                                  double expected_scri_dy_dy_j);
+}  // namespace CauchySecondOrder_detail
+
 struct CauchySecondOrder : InitializeJ<false> {
   struct AngularCoordinateTolerance {
     using type = double;

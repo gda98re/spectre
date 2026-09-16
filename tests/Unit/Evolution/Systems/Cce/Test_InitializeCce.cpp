@@ -3,8 +3,13 @@
 
 #include "Framework/TestingFramework.hpp"
 
+#include <algorithm>
+#include <complex>
 #include <cstddef>
 #include <limits>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/SpinWeighted.hpp"
@@ -40,6 +45,8 @@
 #include "Utilities/Serialization/Serialize.hpp"
 
 namespace Cce {
+
+namespace {
 
 template <template <typename> typename BoundaryTag, typename DbTags>
 void check_boundary_and_asymptotic_j(
@@ -337,7 +344,7 @@ void test_initialize_j_cauchy_second_order(
   // The angular coordinates are adapted iteratively (as in NoIncomingRadiation
   // and ConformalFactor). For randomly generated data the linearized solve
   // occasionally needs more than a few hundred iterations to reach 1e-10, so we
-  // allow up to 1000 iterations (the option maximum) to reliably converge with
+  // allow up to 1000 iterations to reliably converge with
   // `require_convergence = true`.
   const auto initializer = InitializeJ::CauchySecondOrder{
       1.0e-10, 1000, true, 1.0e-1, test_du_dr_j_interpolator()};
@@ -699,9 +706,6 @@ void test_initialize_j_conformal_factor(
   CHECK(only_vary_gauge_d_streamed == "OnlyVaryGaugeD");
 }
 
-// [[TimeOut, 10]]
-// [[TimeOut, 10]]
-
 // The two angular-coordinate solves target the same condition, Jhat^(0) = 0,
 // and the solution of that condition is unique up to the l < 2 conformal
 // freedom -- which both of them discard in the same place, the kernel of the
@@ -1002,6 +1006,38 @@ void test_cauchy_second_order_iteration_budget(
       box_to_initialize, make_not_null(&node_lock));
 }
 
+void test_cauchy_second_order_scri_second_derivative_guard() {
+  INFO("CauchySecondOrder scri+ second-derivative guard");
+  // The guard allows 100 times the violation that the nonlinear part of the
+  // gauge transformation accounts for, plus a round-off floor of 1e-14 for the
+  // noise of differentiating the ansatz twice.
+  const double expected = 1.0e-10;
+  const double threshold = 100.0 * (expected + 1.0e-14);
+
+  // A solve landing under the threshold is what the construction predicts.
+  InitializeJ::CauchySecondOrder_detail::check_scri_second_derivative(
+      0.5 * threshold, expected);
+
+  // One far above it has matched something else.
+  CHECK_THROWS_WITH(
+      InitializeJ::CauchySecondOrder_detail::check_scri_second_derivative(
+          2.0 * threshold, expected),
+      Catch::Matchers::ContainsSubstring(
+          "second radial derivative at scri+ of magnitude"));
+
+  // The floor dominates when the predicted violation is below what two
+  // spectral derivatives can resolve, so a tiny value is still accepted there.
+  InitializeJ::CauchySecondOrder_detail::check_scri_second_derivative(1.0e-13,
+                                                                      0.0);
+  CHECK_THROWS_WITH(
+      InitializeJ::CauchySecondOrder_detail::check_scri_second_derivative(
+          1.0e-9, 0.0),
+      Catch::Matchers::ContainsSubstring("ConformalFactor"));
+}
+
+}  // namespace
+
+// [[TimeOut, 10]]
 SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
   // `CauchySecondOrder` holds an interpolator, so serializing it needs the
   // derived span interpolators registered.
@@ -1201,6 +1237,7 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
         "Check the second-order generator's Du(Dr(J)) interpolator survives "
         "cloning and serialization");
     test_cauchy_second_order_interpolator_round_trip();
+    test_cauchy_second_order_scri_second_derivative_guard();
   }
   CHECK_THROWS_WITH(test_cauchy_second_order_iteration_budget(
                         make_not_null(&box_to_initialize)),

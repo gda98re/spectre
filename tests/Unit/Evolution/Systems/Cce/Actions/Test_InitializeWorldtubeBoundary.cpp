@@ -79,6 +79,9 @@ struct mock_h5_worldtube_boundary_with_initialize_j
 };
 
 struct H5InitializeJMetavariables {
+  // The initialization action picks the generator keyed on this, as the
+  // production metavariables do.
+  static constexpr bool evolve_ccm = false;
   using cce_boundary_communication_tags =
       Tags::characteristic_worldtube_boundary_tags<Tags::BoundaryValue>;
   using component_list = tmpl::list<
