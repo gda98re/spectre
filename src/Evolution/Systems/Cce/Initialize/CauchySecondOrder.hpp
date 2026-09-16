@@ -38,7 +38,11 @@ namespace Cce::InitializeJ {
  * initialization aborts if the asymptotic \f$J\f$ in Cauchy coordinates, or the
  * deviation at any iteration of the solve, exceeds `MaxAngularSolveError`. As a
  * further safeguard, the initialization aborts if the second radial derivative
- * of \f$J\f$ at scri+ of the final solution exceeds `MaxScriSecondDerivative`.
+ * of \f$J\f$ at scri+ of the final solution is far above
+ * \f$\|J^{(0)}\|\,\|B\|^2\f$, the violation of the second partially flat
+ * condition that the nonlinear part of the gauge transformation accounts for
+ * (Eq. (51b) of the CCE initial-data paper, with \f$B\f$ the \f$(1-y)\f$
+ * coefficient of the ansatz).
  */
 struct CauchySecondOrder : InitializeJ<false> {
   struct AngularCoordinateTolerance {
@@ -82,19 +86,6 @@ struct CauchySecondOrder : InitializeJ<false> {
     static type suggested_value() { return 1.0e-1; }
   };
 
-  struct MaxScriSecondDerivative {
-    using type = double;
-    static constexpr Options::String help = {
-        "Abort initialization if the largest second radial derivative of J at "
-        "scri+ of the final initial data exceeds this threshold. The "
-        "second-order construction drives this derivative to (near) zero, so a "
-        "large value indicates a poorly matched solution. Set to a large value "
-        "to effectively disable the check."};
-    static type lower_bound() { return 1.0e-14; }
-    static type upper_bound() { return 1.0e2; }
-    static type suggested_value() { return 1.0e-8; }
-  };
-
   struct DuDrJInterpolator {
     using type = std::unique_ptr<intrp::SpanInterpolator>;
     static constexpr Options::String help = {
@@ -107,9 +98,9 @@ struct CauchySecondOrder : InitializeJ<false> {
         "initial data."};
   };
 
-  using options = tmpl::list<AngularCoordinateTolerance, MaxIterations,
-                             RequireConvergence, MaxAngularSolveError,
-                             MaxScriSecondDerivative, DuDrJInterpolator>;
+  using options =
+      tmpl::list<AngularCoordinateTolerance, MaxIterations, RequireConvergence,
+                 MaxAngularSolveError, DuDrJInterpolator>;
   static constexpr Options::String help = {
       "Second-order initial data generator for the Cauchy CCE evolution."};
 
@@ -119,7 +110,6 @@ struct CauchySecondOrder : InitializeJ<false> {
   CauchySecondOrder(
       double angular_coordinate_tolerance, size_t max_iterations,
       bool require_convergence, double max_angular_solve_error,
-      double max_scri_second_derivative,
       std::unique_ptr<intrp::SpanInterpolator> du_dr_j_interpolator);
 
   CauchySecondOrder() = default;
@@ -172,8 +162,6 @@ struct CauchySecondOrder : InitializeJ<false> {
       std::numeric_limits<double>::signaling_NaN();
   size_t max_iterations_ = 0;
   double max_angular_solve_error_ =
-      std::numeric_limits<double>::signaling_NaN();
-  double max_scri_second_derivative_ =
       std::numeric_limits<double>::signaling_NaN();
   std::unique_ptr<intrp::SpanInterpolator> du_dr_j_interpolator_;
 };

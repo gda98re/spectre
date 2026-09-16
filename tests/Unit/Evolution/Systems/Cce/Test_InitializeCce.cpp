@@ -12,6 +12,7 @@
 #include "DataStructures/VariablesTag.hpp"
 #include "Evolution/Systems/Cce/GaugeTransformBoundaryData.hpp"
 #include "Evolution/Systems/Cce/Initialize/CauchySecondOrder.hpp"
+#include "Evolution/Systems/Cce/Initialize/ComputeSecondOrderRadialDerivativeJ.hpp"
 #include "Evolution/Systems/Cce/Initialize/ConformalFactor.hpp"
 #include "Evolution/Systems/Cce/Initialize/InitializeJ.hpp"
 #include "Evolution/Systems/Cce/Initialize/InverseCubic.hpp"
@@ -305,7 +306,7 @@ std::unique_ptr<intrp::SpanInterpolator> test_du_dr_j_interpolator() {
 // survive the trip into the GlobalCache and back out of a checkpoint.
 void test_cauchy_second_order_interpolator_round_trip() {
   const InitializeJ::CauchySecondOrder with_interpolator{
-      1.0e-10, 400, true, 1.0e-1, 1.0e-8, test_du_dr_j_interpolator()};
+      1.0e-10, 400, true, 1.0e-1, test_du_dr_j_interpolator()};
   REQUIRE(with_interpolator.du_dr_j_interpolator() != nullptr);
   CHECK(with_interpolator.du_dr_j_interpolator()
             ->required_number_of_points_before_and_after() == 2);
@@ -321,8 +322,8 @@ void test_cauchy_second_order_interpolator_round_trip() {
             ->required_number_of_points_before_and_after() == 2);
 
   // A generator that asks for nothing leaves the manager on `H5Interpolator`.
-  const InitializeJ::CauchySecondOrder without_interpolator{
-      1.0e-10, 400, true, 1.0e-1, 1.0e-8, nullptr};
+  const InitializeJ::CauchySecondOrder without_interpolator{1.0e-10, 400, true,
+                                                            1.0e-1, nullptr};
   CHECK(without_interpolator.du_dr_j_interpolator() == nullptr);
   CHECK(without_interpolator.get_clone()->du_dr_j_interpolator() == nullptr);
   CHECK(InitializeJ::InverseCubic<false>{}.du_dr_j_interpolator() == nullptr);
@@ -339,7 +340,7 @@ void test_initialize_j_cauchy_second_order(
   // allow up to 1000 iterations (the option maximum) to reliably converge with
   // `require_convergence = true`.
   const auto initializer = InitializeJ::CauchySecondOrder{
-      1.0e-10, 1000, true, 1.0e-1, 1.0e-8, test_du_dr_j_interpolator()};
+      1.0e-10, 1000, true, 1.0e-1, test_du_dr_j_interpolator()};
   db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
                    InitializeJ::CauchySecondOrder::argument_tags>(
       initializer, box_to_initialize, make_not_null(&node_lock));
@@ -389,9 +390,14 @@ void test_initialize_j_cauchy_second_order(
   }
 
   // The cubic-in-(1 - y) construction forces the second radial derivative of J
-  // to vanish at scri+ in the numerical gauge; the angular gauge transform only
-  // adds a term proportional to the (strain-sized) coordinate distortion, so
-  // the final initial data must still have a tiny second derivative there.
+  // to vanish at scri+ in the numerical gauge, and the angular gauge transform
+  // then violates that by its own nonlinear part alone. Eq. (51b) of the
+  // initial-data paper puts that violation at
+  // ||Delta Jbreve^(2)|| ~ ||mu (Jtilde^(1))^2||, which in the numerical radial
+  // coordinate is ||J^(0)|| ||B||^2 with B the (1 - y) coefficient of the
+  // ansatz -- the same estimate the generator's guard is built on. Checking the
+  // two agree is a far sharper statement than "close to zero", and it is what
+  // makes that guard meaningful rather than an arbitrary number.
   db::mutate_apply<PreSwshDerivatives<Tags::Dy<Tags::BondiJ>>>(
       box_to_initialize);
   db::mutate_apply<PreSwshDerivatives<Tags::Dy<Tags::Dy<Tags::BondiJ>>>>(
@@ -402,27 +408,47 @@ void test_initialize_j_cauchy_second_order(
       get(db::get<Tags::Dy<Tags::Dy<Tags::BondiJ>>>(*box_to_initialize)),
       number_of_angular_points * (number_of_radial_points - 1),
       number_of_angular_points);
-  const ComplexDataVector scri_plus_zeroes{number_of_angular_points, 0.0};
-  const Approx scri_approx = Approx::custom().epsilon(1.0e-10).scale(1.0);
-  CHECK_ITERABLE_CUSTOM_APPROX(scri_slice_dy_dy_j.data(), scri_plus_zeroes,
-                               scri_approx);
-}
 
-template <typename DbTags>
-void test_cauchy_second_order_scri_derivative_error(
-    const gsl::not_null<db::DataBox<DbTags>*> box_to_initialize) {
-  // The second-order construction drives the second radial derivative of J at
-  // scri+ to (near) zero, but a tiny numerical residual always remains. An
-  // unachievably small `MaxScriSecondDerivative` therefore trips the safeguard.
-  // The scri-derivative guard only fires after the angular solve completes, so
-  // allow up to 1000 iterations (as in the successful case above) to reliably
-  // reach convergence rather than aborting on the convergence error first.
-  auto node_lock = Parallel::NodeLock{};
-  db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
-                   InitializeJ::CauchySecondOrder::argument_tags>(
-      InitializeJ::CauchySecondOrder{1.0e-10, 1000, true, 1.0e-1, 1.0e-30,
-                                     test_du_dr_j_interpolator()},
-      box_to_initialize, make_not_null(&node_lock));
+  Scalar<SpinWeighted<ComplexDataVector, 2>> boundary_dy2_j{
+      number_of_angular_points};
+  InitializeJ::CauchySecondOrder_detail::compute_dy_dy_j(
+      make_not_null(&boundary_dy2_j),
+      db::get<Tags::BoundaryValue<Tags::BondiJ>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::BondiU>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::BondiW>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::BondiBeta>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::BondiQ>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::Du<Tags::BondiJ>>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::Dr<Tags::BondiJ>>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::Du<Tags::Dr<Tags::BondiJ>>>>(
+          *box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::Du<Tags::BondiR>>>(*box_to_initialize),
+      db::get<Tags::BoundaryValue<Tags::BondiR>>(*box_to_initialize), l_max);
+  const ComplexDataVector r_dr_j =
+      get(db::get<Tags::BoundaryValue<Tags::BondiR>>(*box_to_initialize))
+          .data() *
+      get(db::get<Tags::BoundaryValue<Tags::Dr<Tags::BondiJ>>>(
+              *box_to_initialize))
+          .data();
+  const double asymptotic_j = max(
+      abs(get(db::get<Tags::BoundaryValue<Tags::BondiJ>>(*box_to_initialize))
+              .data() +
+          r_dr_j + (4.0 / 3.0) * get(boundary_dy2_j).data()));
+  const double one_minus_y_coefficient =
+      max(abs(0.5 * r_dr_j + get(boundary_dy2_j).data()));
+  const double predicted_scri_dy_dy_j =
+      asymptotic_j * square(one_minus_y_coefficient);
+  const double measured_scri_dy_dy_j = max(abs(scri_slice_dy_dy_j.data()));
+  INFO("second partially flat violation: "
+       << measured_scri_dy_dy_j << " measured against "
+       << predicted_scri_dy_dy_j << " predicted by Eq. (51b)");
+  // Two sided, and generously, since the estimate is an order-of-magnitude one;
+  // the round-off floor is the noise of differentiating the ansatz twice.
+  const double round_off_floor = 1.0e-14;
+  CHECK(measured_scri_dy_dy_j <
+        100.0 * (predicted_scri_dy_dy_j + round_off_floor));
+  CHECK(measured_scri_dy_dy_j >
+        0.01 * predicted_scri_dy_dy_j - round_off_floor);
 }
 
 template <typename DbTags>
@@ -435,7 +461,7 @@ void test_cauchy_second_order_angular_solve_threshold(
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
                    InitializeJ::CauchySecondOrder::argument_tags>(
-      InitializeJ::CauchySecondOrder{1.0e-10, 400, true, 1.0e-14, 1.0e-8,
+      InitializeJ::CauchySecondOrder{1.0e-10, 400, true, 1.0e-14,
                                      test_du_dr_j_interpolator()},
       box_to_initialize, make_not_null(&node_lock));
 }
@@ -454,7 +480,7 @@ void test_cauchy_second_order_asymptotic_j_error(
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
                    InitializeJ::CauchySecondOrder::argument_tags>(
-      InitializeJ::CauchySecondOrder{1.0e-10, 400, true, 1.0e-1, 1.0e-8,
+      InitializeJ::CauchySecondOrder{1.0e-10, 400, true, 1.0e-1,
                                      test_du_dr_j_interpolator()},
       box_to_initialize, make_not_null(&node_lock));
 }
@@ -971,7 +997,7 @@ void test_cauchy_second_order_iteration_budget(
   auto node_lock = Parallel::NodeLock{};
   db::mutate_apply<InitializeJ::CauchySecondOrder::return_tags,
                    InitializeJ::CauchySecondOrder::argument_tags>(
-      InitializeJ::CauchySecondOrder{1.0e-14, 10, true, 1.0e-1, 1.0e-8,
+      InitializeJ::CauchySecondOrder{1.0e-14, 10, true, 1.0e-1,
                                      test_du_dr_j_interpolator()},
       box_to_initialize, make_not_null(&node_lock));
 }
@@ -1162,12 +1188,6 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.InitializeJ", "[Unit][Cce]") {
     test_initialize_j_cauchy_second_order(make_not_null(&box_to_initialize),
                                           l_max, number_of_radial_points);
   }
-  CHECK_THROWS_WITH(
-      test_cauchy_second_order_scri_derivative_error(
-          make_not_null(&box_to_initialize)),
-      Catch::Matchers::ContainsSubstring(
-          "The initial J has a second radial derivative at scri+ of "
-          "magnitude"));
   {
     INFO("Check the potential-based angular solve against the linearised one");
     test_angular_coordinate_solves_agree();

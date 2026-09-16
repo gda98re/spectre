@@ -20,6 +20,7 @@
 #include "NumericalAlgorithms/Spectral/Quadrature.hpp"
 #include "NumericalAlgorithms/SpinWeightedSphericalHarmonics/SwshCollocation.hpp"
 #include "Parallel/NodeLock.hpp"
+#include "Parallel/Printf/Printf.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 
@@ -28,20 +29,17 @@ namespace Cce::InitializeJ {
 CauchySecondOrder::CauchySecondOrder(
     const double angular_coordinate_tolerance, const size_t max_iterations,
     const bool require_convergence, const double max_angular_solve_error,
-    const double max_scri_second_derivative,
     std::unique_ptr<intrp::SpanInterpolator> du_dr_j_interpolator)
     : require_convergence_{require_convergence},
       angular_coordinate_tolerance_{angular_coordinate_tolerance},
       max_iterations_{max_iterations},
       max_angular_solve_error_{max_angular_solve_error},
-      max_scri_second_derivative_{max_scri_second_derivative},
       du_dr_j_interpolator_{std::move(du_dr_j_interpolator)} {}
 
 std::unique_ptr<InitializeJ<false>> CauchySecondOrder::get_clone() const {
   return std::make_unique<CauchySecondOrder>(
       angular_coordinate_tolerance_, max_iterations_, require_convergence_,
-      max_angular_solve_error_, max_scri_second_derivative_,
-      du_dr_j_interpolator());
+      max_angular_solve_error_, du_dr_j_interpolator());
 }
 
 std::unique_ptr<intrp::SpanInterpolator>
@@ -87,20 +85,21 @@ void CauchySecondOrder::operator()(
                                          Spectral::Quadrature::GaussLobatto>(
                 number_of_radial_points);
 
+  // Stored rather than inlined so that the equation for `j` reads clearly, and
+  // because the guard at the end of this function needs the (1 - y) one.
+  const ComplexDataVector constant_term =
+      get(boundary_j).data() + get(r).data() * get(boundary_dr_j).data() +
+      (4.0 / 3.0) * get(boundary_dy2_j).data();
+  const ComplexDataVector one_minus_y_coefficient =
+      -(0.5 * get(r).data() * get(boundary_dr_j).data() +
+        get(boundary_dy2_j).data());
+  const ComplexDataVector one_minus_y_cubed_coefficient =
+      (1.0 / 12.0) * get(boundary_dy2_j).data();
+
   for (size_t i = 0; i < number_of_radial_points; ++i) {
     ComplexDataVector angular_view_j{
         get(*j).data().data() + get(boundary_j).size() * i,  // NOLINT
         get(boundary_j).size()};
-    // Store expressions so that the later equation for `j` is easier to read.
-    const auto constant_term = get(boundary_j).data() +
-                               get(r).data() * get(boundary_dr_j).data() +
-                               (4.0 / 3.0) * get(boundary_dy2_j).data();
-    const auto one_minus_y_coefficient =
-        -(0.5 * get(r).data() * get(boundary_dr_j).data() +
-          get(boundary_dy2_j).data());
-    const auto one_minus_y_cubed_coefficient =
-        (1.0 / 12.0) * get(boundary_dy2_j).data();
-
     angular_view_j =
         constant_term + one_minus_y_collocation[i] * one_minus_y_coefficient +
         pow<3>(one_minus_y_collocation[i]) * one_minus_y_cubed_coefficient;
@@ -329,14 +328,52 @@ void CauchySecondOrder::operator()(
   make_const_view(make_not_null(&scri_dy_dy_j), dy_dy_j,
                   (number_of_radial_points - 1) * number_of_angular_points,
                   number_of_angular_points);
+  // What this derivative should be is known, so the guard compares against that
+  // rather than against an absolute number that would mean different things at
+  // different extraction radii. Transforming the Cauchy-gauge ansatz into the
+  // partially flat gauge leaves the second partially flat condition violated by
+  // the nonlinear residual of the transformation, Eq. (51b) of the CCE
+  // initial-data paper,
+  //
+  //     \|\Delta \breve{J}^{(2)}\| ~ \|\mu (\tilde{J}^{(1)})^2\|,
+  //     \mu ~ -J^{(0)} / 2,
+  //
+  // and \breve{J}^{(2)} is the whole of that violation. In the numerical radial
+  // coordinate, where the ansatz is J = A + B (1 - y) + D (1 - y)^3 and
+  // 1 - y = 2 R / r, the 1/r coefficient is \tilde{J}^{(1)} = 2 R B and
+  // \partial_y^2 J at scri+ is \breve{J}^{(2)} / (2 R^2), so the two factors of
+  // R cancel and the estimate is simply
+  //
+  //     |\partial_y^2 \breve{J}|_{scri+} ~ \|J^{(0)}\| \|B\|^2 .
+  //
+  // A solve that lands within `scri_second_derivative_safety_factor` of that is
+  // behaving as the construction says it must; one far above it has matched
+  // something else. The round-off floor keeps the guard from firing on a
+  // worldtube whose predicted violation is itself below what differentiating
+  // the ansatz twice can resolve.
+  const double scri_second_derivative_safety_factor = 100.0;
+  // eps * max|J| * N^4 for the two spectral derivatives, at the resolutions and
+  // strains CCE runs at.
+  const double scri_second_derivative_round_off_floor = 1.0e-14;
+  const double expected_scri_dy_dy_j =
+      max_asymptotic_j * square(max(abs(one_minus_y_coefficient)));
+  const double max_scri_second_derivative =
+      scri_second_derivative_safety_factor *
+      (expected_scri_dy_dy_j + scri_second_derivative_round_off_floor);
   const double max_scri_dy_dy_j = max(abs(scri_dy_dy_j.data()));
-  if (max_scri_dy_dy_j > max_scri_second_derivative_) {
+  Parallel::printf(
+      "CauchySecondOrder initial data: the converged solution has a second "
+      "radial derivative of J at scri+ of magnitude %e, against the %e the "
+      "transformation's nonlinear residual predicts (threshold %e).\n",
+      max_scri_dy_dy_j, expected_scri_dy_dy_j, max_scri_second_derivative);
+  if (max_scri_dy_dy_j > max_scri_second_derivative) {
     ERROR("The initial J has a second radial derivative at scri+ of magnitude "
-          << max_scri_dy_dy_j << ", which exceeds the threshold "
-          << max_scri_second_derivative_
-          << " set by the MaxScriSecondDerivative option. The matched solution "
-             "is not asymptotically well-behaved; check the worldtube boundary "
-             "data or raise the threshold.");
+          << max_scri_dy_dy_j << ", more than "
+          << scri_second_derivative_safety_factor << " times the "
+          << expected_scri_dy_dy_j
+          << " that the nonlinear residual of the gauge transformation "
+             "accounts for. The matched solution is not asymptotically "
+             "well-behaved; check the worldtube boundary data.");
   }
 }
 
@@ -345,7 +382,6 @@ void CauchySecondOrder::pup(PUP::er& p) {
   p | angular_coordinate_tolerance_;
   p | max_iterations_;
   p | max_angular_solve_error_;
-  p | max_scri_second_derivative_;
   p | du_dr_j_interpolator_;
 }
 

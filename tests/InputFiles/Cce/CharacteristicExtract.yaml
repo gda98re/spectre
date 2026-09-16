@@ -129,7 +129,6 @@ Cce:
       MaxIterations: 1500
       RequireConvergence: True
       MaxAngularSolveError: 1e-1
-      MaxScriSecondDerivative: 1e-9
       # The worldtube Du(Dr(J)) that the second-order match uses is built with
       # this interpolator rather than with `H5Interpolator` below: the initial
       # data wants a low order here (2 to 4), while the evolution wants a high

@@ -174,7 +174,6 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.OptionTags", "[Unit][Cce]") {
       "  MaxIterations: 300\n"
       "  RequireConvergence: false\n"
       "  MaxAngularSolveError: 1e-3\n"
-      "  MaxScriSecondDerivative: 1e-6\n"
       "  DuDrJInterpolator:\n"
       "    BarycentricRationalSpanInterpolator:\n"
       "      MinOrder: 2\n"
